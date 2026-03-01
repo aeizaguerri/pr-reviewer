@@ -5,6 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "openai>=2.15.0",
+    "agno>=1.7.0",
+    "openai>=1.0.0",
+    "pygithub>=2.0.0",
+    "httpx>=0.28.0",
+    "fastapi[standard]>=0.115.0",
     "python-dotenv>=1.2.1",
 ]
