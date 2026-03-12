@@ -25,6 +25,16 @@ class Config:
     DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "moonshotai/Kimi-K2-Instruct")
     DEFAULT_PROVIDER: str = os.getenv("DEFAULT_PROVIDER", "huggingface")
 
+    # Neo4j
+    NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
+    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "")
+
+    # Knowledge Graph
+    ENABLE_GRAPH_ENRICHMENT: bool = os.getenv("ENABLE_GRAPH_ENRICHMENT", "false").lower() == "true"
+    GRAPH_QUERY_TIMEOUT: int = int(os.getenv("GRAPH_QUERY_TIMEOUT", "5"))
+    MAX_IMPACT_WARNINGS: int = int(os.getenv("MAX_IMPACT_WARNINGS", "10"))
+
     @classmethod
     def get_model_config(cls) -> tuple[str, str, str]:
         """Returns (model_id, base_url, api_key) for the configured DEFAULT_PROVIDER."""

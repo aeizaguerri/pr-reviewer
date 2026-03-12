@@ -16,3 +16,8 @@ class ConfigurationError(PRReviewerError):
 class GitHubError(PRReviewerError):
     """Error relacionado con la API de GitHub."""
     pass
+
+
+class GraphError(PRReviewerError):
+    """Error relacionado con el knowledge graph (Neo4j)."""
+    pass

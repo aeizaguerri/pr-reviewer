@@ -11,4 +11,17 @@ dependencies = [
     "httpx>=0.28.0",
     "fastapi[standard]>=0.115.0",
     "python-dotenv>=1.2.1",
+    "neo4j>=5.0.0",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests that require a running Neo4j instance (skip by default with -m 'not integration')",
 ]
