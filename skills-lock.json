@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "agno": {
+      "source": "agno-agi/agno-skills",
+      "sourceType": "github",
+      "computedHash": "8dc7653d45861a268fa3fe586906814f1ff4daab0bc44d6c45896ad083d2aa6f"
+    },
+    "git-commit": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "computedHash": "2607fc60629b82b257136dd2a7a373f0a4466c0b49df7746d845d59313c99b21"
+    },
+    "python-design-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "b70500bae0d16740d8a359be63c4645a0ab0f9b839d11d181c45d20958313698"
+    }
+  }
+}

@@ -1,0 +1,70 @@
+# Example topology: 3 microservices communicating via service bus events.
+#
+# order-service  --produces--> OrderCreatedEvent, OrderCancelledEvent
+# payment-service --consumes--> OrderCreatedEvent
+#                 --produces--> PaymentProcessedEvent
+# notification-service --consumes--> OrderCreatedEvent, OrderCancelledEvent, PaymentProcessedEvent
+
+version: "1"
+
+repositories:
+  - name: order-service
+    description: "Manages order lifecycle"
+    services:
+      - name: order-api
+        description: "REST API + event publisher for orders"
+        produces:
+          - name: OrderCreatedEvent
+            file_path: src/contracts/order_created.py
+            type: event
+            schemas:
+              - name: OrderCreatedPayload
+                file_path: src/schemas/order_created_payload.py
+                fields:
+                  - { name: order_id, type: str, required: true }
+                  - { name: customer_email, type: str, required: true }
+                  - { name: total_amount, type: float, required: true }
+                  - { name: items, type: "list[OrderItem]", required: true }
+                  - { name: created_at, type: datetime, required: true }
+          - name: OrderCancelledEvent
+            file_path: src/contracts/order_cancelled.py
+            type: event
+            schemas:
+              - name: OrderCancelledPayload
+                file_path: src/schemas/order_cancelled_payload.py
+                fields:
+                  - { name: order_id, type: str, required: true }
+                  - { name: reason, type: str, required: false }
+                  - { name: cancelled_at, type: datetime, required: true }
+
+  - name: payment-service
+    description: "Processes payments and invoicing"
+    services:
+      - name: payment-worker
+        description: "Consumes order events, processes payments"
+        produces:
+          - name: PaymentProcessedEvent
+            file_path: src/contracts/payment_processed.py
+            type: event
+            schemas:
+              - name: PaymentProcessedPayload
+                file_path: src/schemas/payment_processed_payload.py
+                fields:
+                  - { name: payment_id, type: str, required: true }
+                  - { name: order_id, type: str, required: true }
+                  - { name: amount, type: float, required: true }
+                  - { name: status, type: str, required: true }
+                  - { name: processed_at, type: datetime, required: true }
+        consumes:
+          - OrderCreatedEvent
+          - OrderCancelledEvent
+
+  - name: notification-service
+    description: "Sends emails and push notifications"
+    services:
+      - name: email-sender
+        description: "Listens to events and sends transactional emails"
+        consumes:
+          - OrderCreatedEvent
+          - OrderCancelledEvent
+          - PaymentProcessedEvent
