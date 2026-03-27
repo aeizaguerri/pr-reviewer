@@ -1,14 +1,13 @@
-"""Config adapter: maps Streamlit UI provider selections to (model_id, base_url, api_key).
+"""Provider configuration for the backend API.
 
-Does NOT read environment variables or mutate global state.
+Migrated from src/ui/config_adapter.py — same logic, same provider keys.
 """
 
-# Default model - using Cerebras provider which supports structured outputs and is FREE (1M tokens/day)
-DEFAULT_MODEL = "meta-llama/Llama-3.1-8B-Instruct:cerebras"
+from backend.models.schemas import ProviderInfo
 
 # Models that support structured outputs (Pydantic schema)
 # Cerebras and OpenAI support it; HuggingFace standard and Ollama don't
-SUPPORTS_STRUCTURED_OUTPUT = {
+SUPPORTS_STRUCTURED_OUTPUT: dict[str, bool] = {
     "openai": True,  # All OpenAI models
     "cerebras": True,  # Cerebras supports structured outputs via HF router
     "huggingface": False,  # Standard HF doesn't support it
@@ -49,10 +48,10 @@ def build_provider_config(
     api_key: str,
     base_url_override: str = "",
 ) -> tuple[str, str, str]:
-    """Build (model_id, base_url, api_key) from UI form inputs.
+    """Build (model_id, base_url, api_key) from form inputs.
 
     Args:
-        provider: One of "huggingface", "openai", "ollama".
+        provider: One of "cerebras", "huggingface", "openai", "ollama".
         model: Model ID string. If empty, falls back to provider default.
         api_key: API key string. For ollama, always replaced with "ollama".
         base_url_override: Custom base URL (used for ollama custom endpoint).
@@ -88,6 +87,15 @@ def build_provider_config(
     return model_id, base_url, resolved_key
 
 
-def provider_supports_structured_output(provider: str) -> bool:
-    """Check if the given provider supports structured outputs."""
-    return SUPPORTS_STRUCTURED_OUTPUT.get(provider.lower(), False)
+def get_all_providers() -> list[ProviderInfo]:
+    """Returns a list of ProviderInfo objects for all configured providers."""
+    return [
+        ProviderInfo(
+            key=key,
+            description=info["description"],
+            default_model=info["default_model"],
+            key_label=info["key_label"],
+            supports_structured_output=SUPPORTS_STRUCTURED_OUTPUT.get(key, False),
+        )
+        for key, info in PROVIDERS.items()
+    ]

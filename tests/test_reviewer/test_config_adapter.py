@@ -1,8 +1,8 @@
-"""Unit tests for src/ui/config_adapter.py."""
+"""Unit tests for backend/core/providers.py (migrated from src/ui/config_adapter.py)."""
 
 import pytest
 
-from src.ui.config_adapter import PROVIDERS, build_provider_config
+from backend.core.providers import PROVIDERS, build_provider_config
 
 
 # ---------------------------------------------------------------------------

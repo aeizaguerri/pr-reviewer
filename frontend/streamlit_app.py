@@ -5,17 +5,21 @@ Two-panel layout:
 - Main area: PR input form (owner/repo + PR number), results display
 
 Keys are stored in st.session_state only — never logged or persisted to disk.
+All backend calls go through httpx to the backend API service.
 """
 
+import os
 import re
 
-import streamlit as st
-
+import httpx
 import streamlit as st
 from streamlit import column_config
 
-from src.reviewer.agent import review_pr_with_config
-from src.ui.config_adapter import PROVIDERS, build_provider_config
+# ---------------------------------------------------------------------------
+# Backend URL configuration
+# ---------------------------------------------------------------------------
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -43,6 +47,43 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
+# Load providers from backend API
+# ---------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=300)
+def load_providers() -> dict[str, dict]:
+    """Fetch provider list from backend. Returns empty dict on failure."""
+    try:
+        response = httpx.get(f"{BACKEND_URL}/api/v1/providers", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return {p["key"]: p for p in data["providers"]}
+    except httpx.ConnectError:
+        return {}
+    except Exception:
+        return {}
+
+
+PROVIDERS = load_providers()
+
+if not PROVIDERS:
+    st.warning(
+        "⚠️ Could not connect to the backend. Using fallback provider list.",
+        icon="⚠️",
+    )
+    # Fallback provider list for graceful degradation
+    PROVIDERS = {
+        "cerebras": {
+            "key": "cerebras",
+            "description": "FREE - 1M tokens/day, very fast",
+            "default_model": "meta-llama/Llama-3.1-8B-Instruct:cerebras",
+            "key_label": "HuggingFace API Key",
+            "supports_structured_output": True,
+        }
+    }
+
+# ---------------------------------------------------------------------------
 # Sidebar: configuration controls
 # ---------------------------------------------------------------------------
 
@@ -50,6 +91,18 @@ with st.sidebar:
     st.title("🔍 PR Code Reviewer")
     st.markdown("---")
 
+    # Backend connectivity status
+    try:
+        health = httpx.get(f"{BACKEND_URL}/health", timeout=5.0)
+        health_data = health.json()
+        neo4j_ok = health_data.get("neo4j", False)
+        st.success("Backend conectado ✓")
+        if not neo4j_ok:
+            st.warning("Neo4j no disponible — Graph enrichment desactivado")
+    except Exception:
+        st.error("Backend no disponible")
+
+    st.markdown("---")
     st.subheader("LLM Provider")
 
     # Build options with descriptions
@@ -186,27 +239,34 @@ if review_button:
         owner, repo = repo_slug.split("/", 1)
         pr_num = int(pr_number_input)
 
-        try:
-            provider_config = build_provider_config(
-                provider=provider,
-                model=model_override,
-                api_key=provider_api_key,
-                base_url_override=base_url_input,
-            )
-        except ValueError as exc:
-            st.error(f"Configuration error: {exc}")
-            st.stop()
+        payload = {
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_num,
+            "provider": provider,
+            "model": model_override,
+            "api_key": provider_api_key,
+            "base_url_override": base_url_input,
+            "github_token": github_token,
+        }
 
         with st.spinner(f"Reviewing PR #{pr_num} in {owner}/{repo}…"):
             try:
-                result = review_pr_with_config(
-                    owner=owner,
-                    repo=repo,
-                    pr_number=pr_num,
-                    provider_config=provider_config,
-                    github_token=github_token,
-                    provider=provider,
+                response = httpx.post(
+                    f"{BACKEND_URL}/api/v1/review",
+                    json=payload,
+                    timeout=300,
                 )
+                response.raise_for_status()
+                result = response.json()
+            except httpx.ConnectError:
+                st.error("❌ Backend unreachable. Is the backend service running?")
+                st.stop()
+            except httpx.HTTPStatusError as exc:
+                st.error(
+                    f"Backend error {exc.response.status_code}: {exc.response.text}"
+                )
+                st.stop()
             except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}")
                 st.stop()
@@ -219,32 +279,34 @@ if review_button:
         st.subheader("Review Results")
 
         # Approval badge via st.metric
-        approval_label = "✅ Approved" if result.approved else "❌ Changes Requested"
-        approval_delta = "Ready to merge" if result.approved else "Requires changes"
+        approved = result.get("approved", False)
+        approval_label = "✅ Approved" if approved else "❌ Changes Requested"
+        approval_delta = "Ready to merge" if approved else "Requires changes"
         st.metric(label="Decision", value=approval_label, delta=approval_delta)
 
         # Summary
         st.markdown("### Summary")
-        st.markdown(result.summary)
+        st.markdown(result.get("summary", ""))
 
         # Bug table or success message
-        if not result.bugs:
+        bugs = result.get("bugs", [])
+        if not bugs:
             st.success("🎉 No bugs found — PR looks clean!")
         else:
-            st.markdown(f"### Bugs Found ({len(result.bugs)})")
+            st.markdown(f"### Bugs Found ({len(bugs)})")
 
             # Build rows with severity color prefix for display
             _SEVERITY_EMOJI = {"critical": "🔴", "major": "🟠", "minor": "🟡"}
 
             bug_rows = [
                 {
-                    "Severity": f"{_SEVERITY_EMOJI.get(bug.severity, '')} {bug.severity}",
-                    "File": bug.file,
-                    "Line": bug.line,
-                    "Description": bug.description,
-                    "Suggestion": bug.suggestion,
+                    "Severity": f"{_SEVERITY_EMOJI.get(bug['severity'], '')} {bug['severity']}",
+                    "File": bug["file"],
+                    "Line": bug["line"],
+                    "Description": bug["description"],
+                    "Suggestion": bug["suggestion"],
                 }
-                for bug in result.bugs
+                for bug in bugs
             ]
 
             # Use a scrollable container for the table
@@ -264,7 +326,8 @@ if review_button:
                 )
 
         # Impact warnings (from knowledge graph, optional)
-        if result.impact_warnings:
+        impact_warnings = result.get("impact_warnings", [])
+        if impact_warnings:
             st.markdown("### ⚠️ Impact Warnings")
-            for warning in result.impact_warnings:
-                st.warning(warning.description)
+            for warning in impact_warnings:
+                st.warning(warning["description"])

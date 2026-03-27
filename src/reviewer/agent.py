@@ -8,7 +8,6 @@ from src.core.config import Config
 from src.reviewer.models import BugReport, ReviewOutput
 from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
 from src.reviewer.tools import fetch_pr_data, post_review_comments
-from src.ui.config_adapter import provider_supports_structured_output
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +34,14 @@ def _build_agent(debug: bool = False) -> Agent:
 
 def _build_agent_with_config(
     provider_config: tuple[str, str, str],
-    provider: str = "openai",
+    supports_structured_output: bool = True,
     debug: bool = False,
 ) -> Agent:
     """Build an Agent with explicit (model_id, base_url, api_key) — no env reads."""
     model_id, base_url, api_key = provider_config
 
     # Use structured output only for providers that support it
-    use_structured = provider_supports_structured_output(provider)
+    use_structured = supports_structured_output
 
     return Agent(
         id="pr-code-reviewer",
@@ -191,7 +190,7 @@ def review_pr_with_config(
     pr_number: int,
     provider_config: tuple[str, str, str],
     github_token: str = "",
-    provider: str = "openai",
+    supports_structured_output: bool = True,
 ) -> ReviewOutput:
     """Run the reviewer with explicit provider config (no env var reads).
 
@@ -206,7 +205,7 @@ def review_pr_with_config(
             shape returned by build_provider_config() and Config.get_model_config().
         github_token: GitHub personal access token. When omitted, falls back to
             the GITHUB_ACCESS_TOKEN environment variable.
-        provider: Provider name for structured output support detection.
+        supports_structured_output: Whether the provider supports structured outputs.
 
     Returns:
         ReviewOutput with bugs, summary, and approval status.
@@ -245,7 +244,11 @@ def review_pr_with_config(
             impact_result = None
 
     # Step 3: run LLM analysis with injected config
-    agent = _build_agent_with_config(provider_config, provider=provider, debug=False)
+    agent = _build_agent_with_config(
+        provider_config,
+        supports_structured_output=supports_structured_output,
+        debug=False,
+    )
     run = agent.run(prompt)
 
     # Handle case where content is not a ReviewOutput (e.g., parsing error or API failure)

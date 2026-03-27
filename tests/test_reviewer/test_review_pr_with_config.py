@@ -40,7 +40,7 @@ class TestReviewPrWithConfig:
         )
 
         mock_build.assert_called_once_with(
-            self._PROVIDER_CONFIG, provider="openai", debug=False
+            self._PROVIDER_CONFIG, supports_structured_output=True, debug=False
         )
 
     @patch("src.reviewer.agent.post_review_comments")

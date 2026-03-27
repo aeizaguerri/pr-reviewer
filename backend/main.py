@@ -1,21 +1,79 @@
+"""Backend entrypoint — FastAPI application with webhook and CLI support."""
+
+import hashlib
+import hmac
 import logging
+import os
 import sys
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.v1.routes import router
+from backend.core.config import BackendConfig
 from src.reviewer.agent import review_pr, review_pr_debug
 
+# ---------------------------------------------------------------------------
+# Webhook signature validation
+# ---------------------------------------------------------------------------
+
+WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+
+
+async def _verify_github_signature(
+    request: Request,
+    x_hub_signature_256: str = Header(default=""),
+) -> None:
+    """Validate GitHub webhook HMAC-SHA256 signature.
+
+    If GITHUB_WEBHOOK_SECRET is not set, the endpoint is disabled (501).
+    If signature is missing or invalid, returns 401.
+    """
+    if not WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=501,
+            detail="Webhook is disabled: GITHUB_WEBHOOK_SECRET is not configured.",
+        )
+
+    body = await request.body()
+    mac = hmac.new(WEBHOOK_SECRET.encode("utf-8"), body, hashlib.sha256)
+    expected_sig = "sha256=" + mac.hexdigest()
+
+    if not hmac.compare_digest(expected_sig, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature.")
+
 
 # ---------------------------------------------------------------------------
-# FastAPI webhook app
+# FastAPI application
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="PR Code Reviewer")
+app = FastAPI(title="PR Code Reviewer API")
+
+# CORS middleware
+_cors_origins = [o.strip() for o in BackendConfig.CORS_ORIGINS.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# API routes
+app.include_router(router)
 
 
-@app.post("/webhook/github")
-async def github_webhook(request: Request):
+# ---------------------------------------------------------------------------
+# Webhook endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/webhook/github", status_code=202)
+async def github_webhook(
+    request: Request,
+    _: None = Depends(_verify_github_signature),
+):
     """Receives GitHub PR webhook events and triggers the code review."""
     payload = await request.json()
 
@@ -45,6 +103,7 @@ async def github_webhook(request: Request):
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def _cli_review(repo_slug: str, pr_number: int, debug: bool = False) -> None:
     if "/" not in repo_slug:
         print(f"Error: repo must be in 'owner/repo' format, got '{repo_slug}'")
@@ -57,14 +116,14 @@ def _cli_review(repo_slug: str, pr_number: int, debug: bool = False) -> None:
             level=logging.DEBUG,
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         )
-        print(f"\n[DEBUG] Reviewing PR #{pr_number} in {owner}/{repo}\n{'='*60}")
+        print(f"\n[DEBUG] Reviewing PR #{pr_number} in {owner}/{repo}\n{'=' * 60}")
         review_pr_debug(owner=owner, repo=repo, pr_number=pr_number)
         return
 
     print(f"Reviewing PR #{pr_number} in {owner}/{repo} ...")
     result = review_pr(owner=owner, repo=repo, pr_number=pr_number)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Summary : {result.summary}")
     print(f"Approved: {result.approved}")
     print(f"Bugs    : {len(result.bugs)}")
@@ -72,19 +131,19 @@ def _cli_review(repo_slug: str, pr_number: int, debug: bool = False) -> None:
         print(f"\n  [{bug.severity.upper()}] {bug.file}:{bug.line}")
         print(f"  {bug.description}")
         print(f"  Fix: {bug.suggestion}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 def _cli_serve() -> None:
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)
 
 
 def _cli_graph(args: list[str]) -> None:
     if not args:
         print("Usage:")
-        print("  uv run python main.py graph init")
-        print("  uv run python main.py graph import <topology.yaml>")
-        print("  uv run python main.py graph query <entity-name>")
+        print("  uv run python -m backend.main graph init")
+        print("  uv run python -m backend.main graph import <topology.yaml>")
+        print("  uv run python -m backend.main graph query <entity-name>")
         sys.exit(1)
 
     subcmd = args[0]
@@ -109,7 +168,7 @@ def _cli_graph(args: list[str]) -> None:
 
     elif subcmd == "import":
         if len(args) < 2:
-            print("Usage: uv run python main.py graph import <topology.yaml>")
+            print("Usage: uv run python -m backend.main graph import <topology.yaml>")
             sys.exit(1)
 
         yaml_file = args[1]
@@ -124,7 +183,6 @@ def _cli_graph(args: list[str]) -> None:
             print(f"Error: {exc}")
             sys.exit(1)
         except Exception as exc:
-            # Covers yaml.YAMLError and pydantic.ValidationError
             print(f"Error: invalid topology file — {exc}")
             sys.exit(1)
 
@@ -147,7 +205,9 @@ def _cli_graph(args: list[str]) -> None:
 
     elif subcmd == "query":
         if len(args) < 2:
-            print("Usage: uv run python main.py graph query <entity-name> [--consumers] [--by-path]")
+            print(
+                "Usage: uv run python -m backend.main graph query <entity-name> [--consumers] [--by-path]"
+            )
             sys.exit(1)
 
         entity_name = args[1]
@@ -213,9 +273,11 @@ def main() -> None:
 
     if not args:
         print("Usage:")
-        print("  uv run python main.py review <owner/repo> <pr_number> [--debug]")
-        print("  uv run python main.py serve")
-        print("  uv run python main.py graph <init|import|query>")
+        print(
+            "  uv run python -m backend.main review <owner/repo> <pr_number> [--debug]"
+        )
+        print("  uv run python -m backend.main serve")
+        print("  uv run python -m backend.main graph <init|import|query>")
         sys.exit(0)
 
     command = args[0]
@@ -224,7 +286,9 @@ def main() -> None:
         positional = [a for a in args[1:] if not a.startswith("--")]
         debug = "--debug" in args
         if len(positional) != 2:
-            print("Usage: uv run python main.py review <owner/repo> <pr_number> [--debug]")
+            print(
+                "Usage: uv run python -m backend.main review <owner/repo> <pr_number> [--debug]"
+            )
             sys.exit(1)
         _cli_review(repo_slug=positional[0], pr_number=int(positional[1]), debug=debug)
 
