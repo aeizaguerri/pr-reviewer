@@ -142,7 +142,7 @@ async def github_webhook(
 
 def _cli_review(repo_slug: str, pr_number: int, debug: bool = False) -> None:
     if "/" not in repo_slug:
-        print(f"Error: repo must be in 'owner/repo' format, got '{repo_slug}'")
+        logger.error("repo must be in 'owner/repo' format, got '%s'", repo_slug)
         sys.exit(1)
 
     owner, repo = repo_slug.split("/", 1)
@@ -189,11 +189,11 @@ def _cli_graph(args: list[str]) -> None:
         try:
             driver = get_driver()
         except GraphError as exc:
-            print(f"Error: could not connect to Neo4j — {exc}")
+            logger.error("Could not connect to Neo4j — %s", exc)
             sys.exit(1)
 
         if not check_health():
-            print("Error: Neo4j is not reachable. Is it running?")
+            logger.error("Neo4j is not reachable. Is it running?")
             sys.exit(1)
 
         init_schema(driver)
@@ -213,22 +213,22 @@ def _cli_graph(args: list[str]) -> None:
         try:
             topology = load_topology(yaml_file)
         except FileNotFoundError as exc:
-            print(f"Error: {exc}")
+            logger.error("File not found: %s", exc)
             sys.exit(1)
         except Exception as exc:
-            print(f"Error: invalid topology file — {exc}")
+            logger.error("Invalid topology file — %s", exc)
             sys.exit(1)
 
         try:
             driver = get_driver()
         except GraphError as exc:
-            print(f"Error: could not connect to Neo4j — {exc}")
+            logger.error("Could not connect to Neo4j — %s", exc)
             sys.exit(1)
 
         try:
             stats = populate_graph(driver, topology)
         except Exception as exc:
-            print(f"Error: graph import failed — {exc}")
+            logger.error("Graph import failed — %s", exc)
             sys.exit(1)
 
         print(
@@ -258,7 +258,7 @@ def _cli_graph(args: list[str]) -> None:
         try:
             driver = get_driver()
         except GraphError as exc:
-            print(f"Error: could not connect to Neo4j — {exc}")
+            logger.error("Could not connect to Neo4j — %s", exc)
             sys.exit(1)
 
         try:
@@ -293,7 +293,7 @@ def _cli_graph(args: list[str]) -> None:
                 else:
                     print(f"Entity '{entity_name}' not found in the knowledge graph.")
         except Exception as exc:
-            print(f"Error: query failed — {exc}")
+            logger.error("Query failed — %s", exc)
             sys.exit(1)
 
     else:
