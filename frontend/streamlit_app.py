@@ -15,6 +15,10 @@ import httpx
 import streamlit as st
 from streamlit import column_config
 
+from src.core.logging_config import configure_logging
+
+configure_logging()
+
 # ---------------------------------------------------------------------------
 # Backend URL configuration
 # ---------------------------------------------------------------------------

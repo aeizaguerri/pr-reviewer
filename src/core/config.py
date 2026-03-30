@@ -23,6 +23,9 @@ class Config:
     # GitHub
     GITHUB_ACCESS_TOKEN: str = os.getenv("GITHUB_ACCESS_TOKEN", "")
 
+    # Logging
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
     # Default provider / model
     DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "moonshotai/Kimi-K2-Instruct")
     DEFAULT_PROVIDER: str = os.getenv("DEFAULT_PROVIDER", "huggingface")

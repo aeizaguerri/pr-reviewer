@@ -5,6 +5,7 @@ import hmac
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.v1.routes import router
 from backend.core.config import BackendConfig
 from src.core.config import Config
+from src.core.logging_config import configure_logging
 from src.reviewer.agent import review_pr, review_pr_debug
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,20 @@ async def _verify_github_signature(
 # FastAPI application
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="PR Code Reviewer API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan handler — configures logging on startup.
+
+    This ensures that direct ``uvicorn backend.main:app`` invocations (which
+    bypass ``main()``) still have logging configured before any request lands.
+    """
+    configure_logging()
+    logger.info("PR Reviewer backend started")
+    yield
+
+
+app = FastAPI(title="PR Code Reviewer API", lifespan=lifespan)
 
 # CORS middleware
 _cors_origins = [o.strip() for o in BackendConfig.CORS_ORIGINS.split(",") if o.strip()]
@@ -133,10 +148,7 @@ def _cli_review(repo_slug: str, pr_number: int, debug: bool = False) -> None:
     owner, repo = repo_slug.split("/", 1)
 
     if debug:
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        )
+        configure_logging("DEBUG")
         print(f"\n[DEBUG] Reviewing PR #{pr_number} in {owner}/{repo}\n{'=' * 60}")
         review_pr_debug(owner=owner, repo=repo, pr_number=pr_number)
         return
@@ -290,6 +302,7 @@ def _cli_graph(args: list[str]) -> None:
 
 
 def main() -> None:
+    configure_logging()
     args = sys.argv[1:]
 
     if not args:
