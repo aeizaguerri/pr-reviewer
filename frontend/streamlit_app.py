@@ -31,7 +31,360 @@ st.set_page_config(
     layout="wide",
 )
 
-# Custom CSS for horizontal scrolling on dataframes
+# ---------------------------------------------------------------------------
+# Theme — dark/light toggle
+# ---------------------------------------------------------------------------
+
+# config.toml sets base="dark" as native default.
+# Light mode is applied via CSS injection that overrides every Streamlit
+# CSS variable and explicitly targets each component type.
+# Using data-testid selectors (stable across versions) instead of generated
+# class names.
+
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = True
+
+# CSS transitions are always injected so that switching feels smooth.
+_TRANSITIONS_CSS = """
+<style>
+    .stApp,
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > div,
+    [data-testid="stSidebarContent"],
+    [data-testid="stHeader"],
+    [data-testid="stMainBlockContainer"],
+    .stTextInput input,
+    [data-baseweb="input"],
+    [data-baseweb="select"] > div:first-child,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stWidgetLabel"],
+    [data-testid="stAlert"],
+    [data-testid="metric-container"],
+    button,
+    hr {
+        transition:
+            background-color 0.3s ease,
+            color 0.3s ease,
+            border-color 0.3s ease,
+            box-shadow 0.3s ease !important;
+    }
+    svg, svg path, svg rect, svg circle, svg polygon {
+        transition: fill 0.3s ease, stroke 0.3s ease !important;
+    }
+</style>
+"""
+
+# Light mode: exhaustive overrides of every Streamlit dark default.
+# Organised by component so it's easy to extend.
+_LIGHT_MODE_CSS = """
+<style>
+
+/* ── 1. CSS VARIABLE ROOT OVERRIDES ─────────────────────────────────────── */
+:root {
+    --background-color:           #ffffff !important;
+    --secondary-background-color: #f0f2f6 !important;
+    --text-color:                 #31333f !important;
+    --primary-color:              #FF4B4B !important;
+}
+
+/* ── 2. APP CHROME ───────────────────────────────────────────────────────── */
+.stApp {
+    background-color: #ffffff !important;
+    color: #31333f !important;
+}
+[data-testid="stMainBlockContainer"],
+.main .block-container {
+    background-color: #ffffff !important;
+}
+[data-testid="stHeader"] {
+    background-color: #ffffff !important;
+    border-bottom: 1px solid rgba(49,51,63,0.1) !important;
+}
+/* Streamlit's top coloured bar */
+[data-testid="stDecoration"] {
+    background-image: none !important;
+    background-color: #FF4B4B !important;
+}
+
+/* ── 3. SIDEBAR ──────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebarContent"] {
+    background-color: #f0f2f6 !important;
+}
+/* Text inside sidebar */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] span:not([data-baseweb]),
+[data-testid="stSidebar"] label {
+    color: #31333f !important;
+}
+/* Sidebar collapse/expand button */
+[data-testid="stSidebarCollapseButton"] svg,
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarNavCollapseIcon"] svg {
+    fill: #31333f !important;
+}
+
+/* ── 4. GENERAL TEXT ─────────────────────────────────────────────────────── */
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] a,
+[data-testid="stMarkdownContainer"] strong,
+[data-testid="stMarkdownContainer"] em,
+[data-testid="stMarkdownContainer"] code,
+[data-testid="stHeadingWithActionElements"] h1,
+[data-testid="stHeadingWithActionElements"] h2,
+[data-testid="stHeadingWithActionElements"] h3,
+.stHeader > h1, .stHeader > h2, .stHeader > h3,
+p, li {
+    color: #31333f !important;
+}
+
+/* ── 5. WIDGET LABELS ────────────────────────────────────────────────────── */
+[data-testid="stWidgetLabel"],
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] span,
+label {
+    color: #31333f !important;
+}
+
+/* ── 6. TEXT INPUT ───────────────────────────────────────────────────────── */
+/* Outer border wrapper */
+[data-baseweb="input"] {
+    background-color: #ffffff !important;
+    border-color: rgba(49,51,63,0.2) !important;
+}
+/* Actual <input> element */
+.stTextInput input,
+[data-baseweb="input"] input {
+    background-color: #ffffff !important;
+    color: #31333f !important;
+    caret-color: #31333f !important;
+}
+/* Placeholder text */
+.stTextInput input::placeholder,
+[data-baseweb="input"] input::placeholder {
+    color: rgba(49,51,63,0.38) !important;
+    opacity: 1 !important;
+}
+/* Focus ring */
+.stTextInput input:focus,
+[data-baseweb="input"]:focus-within {
+    border-color: #FF4B4B !important;
+    box-shadow: 0 0 0 1px #FF4B4B !important;
+}
+/* Icon inside input (e.g. password eye) */
+.stTextInput svg {
+    fill: rgba(49,51,63,0.5) !important;
+}
+/* Password visibility toggle button (sits inside the input wrapper) */
+.stTextInput button,
+[data-baseweb="input"] button {
+    background-color: #f0f2f6 !important;
+    border-color: rgba(49,51,63,0.2) !important;
+}
+.stTextInput button:hover,
+[data-baseweb="input"] button:hover {
+    background-color: #e2e5ea !important;
+}
+.stTextInput button svg,
+[data-baseweb="input"] button svg {
+    fill: rgba(49,51,63,0.6) !important;
+}
+
+/* ── 7. SELECT BOX ───────────────────────────────────────────────────────── */
+/* Control (closed state) */
+[data-baseweb="select"] > div:first-child {
+    background-color: #ffffff !important;
+    border-color: rgba(49,51,63,0.2) !important;
+}
+[data-baseweb="select"] > div:first-child > div {
+    background-color: #ffffff !important;
+    color: #31333f !important;
+}
+/* Selected value text */
+[data-baseweb="select"] span,
+[data-baseweb="select"] [data-testid="stMarkdownContainer"] p {
+    color: #31333f !important;
+}
+/* Chevron icon */
+[data-baseweb="select"] svg {
+    fill: rgba(49,51,63,0.6) !important;
+}
+/* Dropdown popover / menu */
+[data-baseweb="popover"],
+[data-baseweb="popover"] > div,
+[data-baseweb="menu"],
+ul[data-baseweb="menu"] {
+    background-color: #ffffff !important;
+    border-color: rgba(49,51,63,0.1) !important;
+}
+li[role="option"],
+[data-baseweb="option"] {
+    background-color: #ffffff !important;
+    color: #31333f !important;
+}
+li[role="option"]:hover,
+[data-baseweb="option"]:hover,
+[aria-selected="true"][data-baseweb="option"] {
+    background-color: #f0f2f6 !important;
+}
+
+/* ── 8. HELP / TOOLTIP ICON (?) ─────────────────────────────────────────── */
+[data-testid="stTooltipIcon"] svg,
+.stTooltipIcon svg {
+    fill: rgba(49,51,63,0.4) !important;
+}
+
+/* ── 9. TOOLBAR / HEADER BUTTONS ─────────────────────────────────────────── */
+[data-testid="stHeader"] svg,
+[data-testid="baseButton-headerNoPadding"] svg,
+[data-testid="stToolbarActionButton"] svg {
+    fill: #31333f !important;
+}
+
+/* ── 10. ALERT / NOTIFICATION BOXES ─────────────────────────────────────── */
+/* Generic alert wrapper */
+[data-testid="stAlert"] > div {
+    border-color: rgba(49,51,63,0.15) !important;
+}
+/* Warning ⚠️ */
+[data-testid="stNotificationContentWarning"] {
+    background-color: rgba(255,193,7,0.12) !important;
+    color: #7d5700 !important;
+    border-left-color: #f59e0b !important;
+}
+[data-testid="stNotificationContentWarning"] p,
+[data-testid="stNotificationContentWarning"] span {
+    color: #7d5700 !important;
+}
+[data-testid="stNotificationContentWarning"] svg {
+    fill: #f59e0b !important;
+}
+/* Error ❌ */
+[data-testid="stNotificationContentError"] {
+    background-color: rgba(255,75,75,0.12) !important;
+    color: #7d0000 !important;
+    border-left-color: #ef4444 !important;
+}
+[data-testid="stNotificationContentError"] p,
+[data-testid="stNotificationContentError"] span {
+    color: #7d0000 !important;
+}
+[data-testid="stNotificationContentError"] svg {
+    fill: #ef4444 !important;
+}
+/* Success ✅ */
+[data-testid="stNotificationContentSuccess"] {
+    background-color: rgba(33,195,84,0.12) !important;
+    color: #065f46 !important;
+    border-left-color: #22c55e !important;
+}
+[data-testid="stNotificationContentSuccess"] p,
+[data-testid="stNotificationContentSuccess"] span {
+    color: #065f46 !important;
+}
+[data-testid="stNotificationContentSuccess"] svg {
+    fill: #22c55e !important;
+}
+/* Info ℹ️ */
+[data-testid="stNotificationContentInfo"] {
+    background-color: rgba(61,157,243,0.12) !important;
+    color: #1e3a8a !important;
+    border-left-color: #3b82f6 !important;
+}
+[data-testid="stNotificationContentInfo"] p,
+[data-testid="stNotificationContentInfo"] span {
+    color: #1e3a8a !important;
+}
+[data-testid="stNotificationContentInfo"] svg {
+    fill: #3b82f6 !important;
+}
+
+/* ── 11. METRIC ──────────────────────────────────────────────────────────── */
+[data-testid="metric-container"] {
+    background-color: transparent !important;
+}
+[data-testid="stMetricLabel"],
+[data-testid="stMetricLabel"] p,
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] div,
+[data-testid="stMetricDelta"] {
+    color: #31333f !important;
+}
+
+/* ── 12. BUTTONS ─────────────────────────────────────────────────────────── */
+/* Primary — both old and new data-testid for Streamlit 1.45+ */
+[data-testid="stBaseButton-primary"],
+[data-testid="baseButton-primary"],
+.stButton > button[kind="primary"] {
+    background-color: #FF4B4B !important;
+    color: #ffffff !important;
+    border-color: #FF4B4B !important;
+}
+[data-testid="stBaseButton-primary"] svg,
+[data-testid="baseButton-primary"] svg,
+.stButton > button[kind="primary"] svg {
+    fill: #ffffff !important;
+}
+/* Secondary — explicit light background (transparent inherits dark base) */
+[data-testid="stBaseButton-secondary"],
+[data-testid="baseButton-secondary"],
+.stButton > button[kind="secondary"] {
+    background-color: #f0f2f6 !important;
+    color: #31333f !important;
+    border-color: rgba(49,51,63,0.2) !important;
+}
+[data-testid="stBaseButton-secondary"] svg,
+[data-testid="baseButton-secondary"] svg,
+.stButton > button[kind="secondary"] svg {
+    fill: #31333f !important;
+}
+
+/* ── 13. DATAFRAME ───────────────────────────────────────────────────────── */
+[data-testid="stDataFrame"],
+.dvn-scroller,
+.stDataFrame {
+    background-color: #ffffff !important;
+    color: #31333f !important;
+}
+
+/* ── 14. DIVIDERS ────────────────────────────────────────────────────────── */
+hr {
+    border-color: rgba(49,51,63,0.15) !important;
+}
+
+/* ── 15. RADIO BUTTONS ───────────────────────────────────────────────────── */
+[data-testid="stRadio"] p,
+[data-testid="stRadio"] label,
+[data-testid="stRadio"] span {
+    color: #31333f !important;
+}
+
+/* ── 16. CAPTIONS / SMALL TEXT ───────────────────────────────────────────── */
+.stCaption,
+[data-testid="stCaptionContainer"] p {
+    color: rgba(49,51,63,0.55) !important;
+}
+
+/* ── 17. SPINNER ─────────────────────────────────────────────────────────── */
+[data-testid="stSpinner"] p {
+    color: #31333f !important;
+}
+
+</style>
+"""
+
+# Inject CSS — transitions always, light overrides conditionally.
+st.markdown(_TRANSITIONS_CSS, unsafe_allow_html=True)
+if not st.session_state.dark_mode:
+    st.markdown(_LIGHT_MODE_CSS, unsafe_allow_html=True)
+
+# Custom CSS for horizontal scrolling on dataframes (always active)
 st.markdown(
     """
 <style>
@@ -69,7 +422,7 @@ PROVIDERS = load_providers()
 
 if not PROVIDERS:
     st.warning(
-        "⚠️ Could not connect to the backend. Using fallback provider list.",
+        "Could not connect to the backend. Using fallback provider list.",
         icon="⚠️",
     )
     # Fallback provider list for graceful degradation
@@ -89,6 +442,32 @@ if not PROVIDERS:
 
 with st.sidebar:
     st.title("🔍 PR Code Reviewer")
+    st.markdown("---")
+
+    # ── Theme toggle ───────────────────────────────────────────────────────
+    col_dark, col_light = st.columns(2)
+    with col_dark:
+        dark_btn = st.button(
+            "🌙 Oscuro",
+            use_container_width=True,
+            type="primary" if st.session_state.dark_mode else "secondary",
+            help="Cambiar a modo oscuro",
+        )
+    with col_light:
+        light_btn = st.button(
+            "☀️ Claro",
+            use_container_width=True,
+            type="primary" if not st.session_state.dark_mode else "secondary",
+            help="Cambiar a modo claro",
+        )
+
+    if dark_btn and not st.session_state.dark_mode:
+        st.session_state.dark_mode = True
+        st.rerun()
+    if light_btn and st.session_state.dark_mode:
+        st.session_state.dark_mode = False
+        st.rerun()
+
     st.markdown("---")
 
     # Backend connectivity status
