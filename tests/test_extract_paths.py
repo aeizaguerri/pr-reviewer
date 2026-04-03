@@ -1,6 +1,5 @@
 """D.2 — Unit tests for _extract_changed_paths() in src/reviewer/agent.py."""
 
-import pytest
 
 from src.reviewer.agent import _extract_changed_paths
 

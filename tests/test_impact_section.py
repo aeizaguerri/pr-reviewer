@@ -1,6 +1,5 @@
 """D.3 — Unit tests for _build_impact_section() in src/reviewer/prompts.py."""
 
-import pytest
 
 from src.knowledge.models import ImpactResult, ImpactWarning
 from src.reviewer.prompts import _build_impact_section

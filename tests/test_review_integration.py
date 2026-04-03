@@ -6,7 +6,6 @@ No running Neo4j or LLM endpoint is required.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.knowledge.models import ImpactResult, ImpactWarning
 from src.reviewer.models import BugReport, ReviewOutput

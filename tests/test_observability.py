@@ -2,7 +2,7 @@
 
 import sys
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import src.core.observability as obs_module
 from src.core.config import Config

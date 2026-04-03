@@ -631,9 +631,10 @@ if review_button:
             "base_url_override": base_url_input,
         }
 
-        request_headers = {"X-GitHub-Token": github_token}
-        if provider_api_key:
-            request_headers["Authorization"] = f"Bearer {provider_api_key}"
+        request_headers = {
+            "X-GitHub-Token": github_token,
+            "Authorization": f"Bearer {provider_api_key or 'ollama'}",
+        }
 
         with st.spinner(f"Reviewing PR #{pr_num} in {owner}/{repo}…"):
             try:

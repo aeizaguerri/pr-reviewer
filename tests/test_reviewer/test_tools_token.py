@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.reviewer.tools import fetch_pr_data, post_review_comments
 

@@ -1,6 +1,5 @@
 """Shared pytest fixtures for the PR Code Reviewer test suite."""
 
-import os
 from pathlib import Path
 
 import pytest

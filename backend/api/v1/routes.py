@@ -19,7 +19,7 @@ router = APIRouter()
 @router.post("/review", response_model=ReviewResponse)
 def review_pr(
     req: ReviewRequest,
-    authorization: str = Header(default=""),
+    authorization: str = Header(...),
     x_github_token: str = Header(...),
 ) -> ReviewResponse:
     """Run a code review on the given pull request."""

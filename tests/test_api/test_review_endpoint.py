@@ -110,23 +110,22 @@ class TestMissingGitHubToken:
 
 
 # ---------------------------------------------------------------------------
-# 4.4 — Missing Authorization → 200 (api_key defaults to empty)
+# 4.4 — Missing Authorization → 422 (api_key is required)
 # ---------------------------------------------------------------------------
 
 
 class TestMissingAuthorization:
-    """POST without Authorization header → still 200; api_key defaults to empty (env fallback)."""
+    """POST without Authorization header → FastAPI must return 422."""
 
-    @patch("backend.api.v1.routes.run_review", return_value=MOCK_REVIEW_RESPONSE)
-    def test_missing_authorization_returns_200(self, mock_run, client):
+    def test_missing_authorization_returns_422(self, client):
         response = client.post(
             REVIEW_URL,
             json=VALID_BODY,
             headers={"X-GitHub-Token": "ghtoken"},
             # deliberately no Authorization
         )
-        assert response.status_code == 200, (
-            f"Expected 200 when Authorization is absent (api_key optional), "
+        assert response.status_code == 422, (
+            f"Expected 422 when Authorization is absent (api_key required), "
             f"got {response.status_code}: {response.text}"
         )
 

@@ -2,10 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from neo4j.exceptions import ServiceUnavailable
 
-from src.knowledge.models import ImpactResult, ImpactWarning
+from src.knowledge.models import ImpactResult
 from src.knowledge.queries import find_consumers_of_paths
 
 

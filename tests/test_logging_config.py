@@ -2,10 +2,7 @@
 
 import logging
 import logging.config
-import sys
 import warnings
-from io import StringIO
-from unittest.mock import patch
 
 import pytest
 
@@ -151,7 +148,7 @@ class TestInvalidLevel:
         monkeypatch.setattr(cfg_module.Config, "LOG_LEVEL", "VERBOSE")
 
         # Should not raise
-        with warnings.catch_warnings(record=True) as caught:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             configure_logging()
 

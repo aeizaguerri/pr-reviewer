@@ -7,7 +7,6 @@ no-ops (idempotent).
 
 import logging
 import logging.config
-import sys
 import warnings
 
 _configured: bool = False

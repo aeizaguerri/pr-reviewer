@@ -3,7 +3,6 @@
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import src.core.config as cfg_module
 from src.reviewer.tools import fetch_pr_data

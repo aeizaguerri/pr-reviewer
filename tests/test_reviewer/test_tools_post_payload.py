@@ -7,9 +7,8 @@ Phase 3 (GREEN): After adding "side": "RIGHT" in tools.py, all tests pass.
 """
 
 import json
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.reviewer.tools import post_review_comments
 
