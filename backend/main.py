@@ -81,7 +81,7 @@ app.add_middleware(
 )
 
 # API routes
-app.include_router(router)
+app.include_router(router, prefix="/api/v1")
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +110,7 @@ async def github_webhook(
 
     # L1: Author association gating — skip untrusted authors
     author_association = (pr.get("author_association") or "NONE").upper()
-    _trusted_raw = {
-        a.strip().upper() for a in Config.TRUSTED_AUTHOR_ASSOCIATIONS.split(",")
-    }
+    _trusted_raw = {a.strip().upper() for a in Config.TRUSTED_AUTHOR_ASSOCIATIONS.split(",")}
     trusted = {a for a in _trusted_raw if a}
     if not trusted:
         logger.warning(

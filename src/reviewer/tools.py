@@ -85,9 +85,7 @@ def post_review_comments(
         return "Error: GITHUB_ACCESS_TOKEN is not set."
 
     try:
-        parsed_comments = (
-            json.loads(comments) if isinstance(comments, str) else comments
-        )
+        parsed_comments = json.loads(comments) if isinstance(comments, str) else comments
     except json.JSONDecodeError as e:
         return f"Error parsing comments JSON: {e}"
 
@@ -102,7 +100,7 @@ def post_review_comments(
         "body": summary,
         "event": "COMMENT",
         "comments": [
-            {"path": c["path"], "line": c["line"], "body": c["body"]}
+            {"path": c["path"], "line": c["line"], "side": "RIGHT", "body": c["body"]}
             for c in parsed_comments
         ],
     }
@@ -120,8 +118,7 @@ def post_review_comments(
             "Falling back to top-level review comment."
         )
         bug_lines = "\n".join(
-            f"- **{c['path']}:{c['line']}** {c['body']}"
-            for c in payload["comments"]
+            f"- **{c['path']}:{c['line']}** {c['body']}" for c in payload["comments"]
         )
         fallback_payload = {
             "commit_id": commit_sha,

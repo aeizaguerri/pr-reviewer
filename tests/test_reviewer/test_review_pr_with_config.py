@@ -25,9 +25,7 @@ class TestReviewPrWithConfig:
     @patch("src.reviewer.agent.post_review_comments")
     @patch("src.reviewer.agent.fetch_pr_data")
     @patch("src.reviewer.agent._build_agent_with_config")
-    def test_calls_build_agent_with_injected_config(
-        self, mock_build, mock_fetch, mock_post
-    ):
+    def test_calls_build_agent_with_injected_config(self, mock_build, mock_fetch, mock_post):
         from src.reviewer.agent import review_pr_with_config
 
         mock_fetch.return_value = ("diff text", "abc123", "Fix: something")
@@ -35,9 +33,7 @@ class TestReviewPrWithConfig:
         mock_run.content = self._make_review_output()
         mock_build.return_value.run.return_value = mock_run
 
-        review_pr_with_config(
-            "owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok"
-        )
+        review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok")
 
         mock_build.assert_called_once_with(
             self._PROVIDER_CONFIG, supports_structured_output=True, debug=False
@@ -46,9 +42,7 @@ class TestReviewPrWithConfig:
     @patch("src.reviewer.agent.post_review_comments")
     @patch("src.reviewer.agent.fetch_pr_data")
     @patch("src.reviewer.agent._build_agent_with_config")
-    def test_passes_github_token_to_fetch_pr_data(
-        self, mock_build, mock_fetch, mock_post
-    ):
+    def test_passes_github_token_to_fetch_pr_data(self, mock_build, mock_fetch, mock_post):
         from src.reviewer.agent import review_pr_with_config
 
         mock_fetch.return_value = ("diff", "sha", "title")
@@ -56,9 +50,7 @@ class TestReviewPrWithConfig:
         mock_run.content = self._make_review_output()
         mock_build.return_value.run.return_value = mock_run
 
-        review_pr_with_config(
-            "owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok"
-        )
+        review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok")
 
         mock_fetch.assert_called_once_with("owner", "repo", 1, github_token="ghp-tok")
 
@@ -76,15 +68,13 @@ class TestReviewPrWithConfig:
 
         result = review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
 
-        assert result is expected
+        assert result == expected
         assert result.approved is True
 
     @patch("src.reviewer.agent.post_review_comments")
     @patch("src.reviewer.agent.fetch_pr_data")
     @patch("src.reviewer.agent._build_agent_with_config")
-    def test_does_not_post_comments_when_no_bugs(
-        self, mock_build, mock_fetch, mock_post
-    ):
+    def test_does_not_post_comments_when_no_bugs(self, mock_build, mock_fetch, mock_post):
         from src.reviewer.agent import review_pr_with_config
 
         mock_fetch.return_value = ("diff", "sha", "title")
@@ -110,6 +100,4 @@ class TestReviewPrBackwardCompat:
 
         sig = inspect.signature(review_pr)
         params = list(sig.parameters.keys())
-        assert params == ["owner", "repo", "pr_number"], (
-            f"review_pr() signature changed: {params}"
-        )
+        assert params == ["owner", "repo", "pr_number"], f"review_pr() signature changed: {params}"

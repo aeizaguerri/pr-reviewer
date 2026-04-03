@@ -1,15 +1,15 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     owner: str
     repo: str
     pr_number: int = Field(..., gt=0)
     provider: str = "cerebras"
     model: str = ""
-    api_key: str = ""
     base_url_override: str = ""
-    github_token: str
 
 
 class BugReportResponse(BaseModel):

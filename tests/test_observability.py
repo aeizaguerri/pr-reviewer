@@ -12,6 +12,7 @@ from src.core.config import Config
 # Auto-reset module-level state before each test
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def reset_observability_state(monkeypatch):
     """Reset module-level state before each test."""
@@ -23,6 +24,7 @@ def reset_observability_state(monkeypatch):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_opik_mock():
     """Return a minimal opik mock suitable for patching sys.modules."""
@@ -39,6 +41,7 @@ def _make_agno_mock():
 # ---------------------------------------------------------------------------
 # TestConfigureOpikNoOp
 # ---------------------------------------------------------------------------
+
 
 class TestConfigureOpikNoOp:
     def test_returns_without_importing_opik_when_key_is_empty(self, monkeypatch):
@@ -65,8 +68,9 @@ class TestConfigureOpikNoOp:
 # TestConfigureOpikActive
 # ---------------------------------------------------------------------------
 
+
 class TestConfigureOpikActive:
-    def test_calls_opik_configure_with_project_name(self, monkeypatch):
+    def test_calls_opik_configure_with_api_key(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
         monkeypatch.setattr(Config, "OPIK_PROJECT_NAME", "pr-reviewer")
         monkeypatch.setattr(Config, "OPIK_WORKSPACE", "")
@@ -85,7 +89,7 @@ class TestConfigureOpikActive:
 
         mock_opik.configure.assert_called_once()
         call_kwargs = mock_opik.configure.call_args.kwargs
-        assert call_kwargs["project_name"] == "pr-reviewer"
+        assert call_kwargs["api_key"] == "test-key"
 
     def test_does_not_include_workspace_when_empty(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
@@ -169,6 +173,7 @@ class TestConfigureOpikActive:
 # TestConfigureOpikIdempotent
 # ---------------------------------------------------------------------------
 
+
 class TestConfigureOpikIdempotent:
     def test_opik_configure_called_exactly_once_on_double_call(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
@@ -230,6 +235,7 @@ class TestConfigureOpikIdempotent:
 # TestGetReviewerPromptFromOpik
 # ---------------------------------------------------------------------------
 
+
 class TestGetReviewerPromptFromOpik:
     def test_returns_prompt_from_opik_when_key_is_set(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
@@ -278,6 +284,7 @@ class TestGetReviewerPromptFromOpik:
 # TestGetReviewerPromptFallback
 # ---------------------------------------------------------------------------
 
+
 class TestGetReviewerPromptFallback:
     def test_falls_back_to_file_when_opik_raises(self, monkeypatch, tmp_path):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
@@ -312,8 +319,9 @@ class TestGetReviewerPromptFallback:
             with caplog.at_level(logging.WARNING, logger="src.core.observability"):
                 obs_module.get_reviewer_prompt()
 
-        assert any("warning" in r.levelname.lower() or r.levelno >= logging.WARNING
-                   for r in caplog.records)
+        assert any(
+            "warning" in r.levelname.lower() or r.levelno >= logging.WARNING for r in caplog.records
+        )
 
     def test_fallback_result_is_cached(self, monkeypatch, tmp_path):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
@@ -337,6 +345,7 @@ class TestGetReviewerPromptFallback:
 # ---------------------------------------------------------------------------
 # TestGetReviewerPromptNoApiKey
 # ---------------------------------------------------------------------------
+
 
 class TestGetReviewerPromptNoApiKey:
     def test_reads_file_directly_when_key_is_empty(self, monkeypatch, tmp_path):

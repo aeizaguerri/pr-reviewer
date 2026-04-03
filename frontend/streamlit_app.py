@@ -628,16 +628,19 @@ if review_button:
             "pr_number": pr_num,
             "provider": provider,
             "model": model_override,
-            "api_key": provider_api_key,
             "base_url_override": base_url_input,
-            "github_token": github_token,
         }
+
+        request_headers = {"X-GitHub-Token": github_token}
+        if provider_api_key:
+            request_headers["Authorization"] = f"Bearer {provider_api_key}"
 
         with st.spinner(f"Reviewing PR #{pr_num} in {owner}/{repo}…"):
             try:
                 response = httpx.post(
                     f"{BACKEND_URL}/api/v1/review",
                     json=payload,
+                    headers=request_headers,
                     timeout=300,
                 )
                 response.raise_for_status()
@@ -646,9 +649,7 @@ if review_button:
                 st.error("❌ Backend unreachable. Is the backend service running?")
                 st.stop()
             except httpx.HTTPStatusError as exc:
-                st.error(
-                    f"Backend error {exc.response.status_code}: {exc.response.text}"
-                )
+                st.error(f"Backend error {exc.response.status_code}: {exc.response.text}")
                 st.stop()
             except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}")

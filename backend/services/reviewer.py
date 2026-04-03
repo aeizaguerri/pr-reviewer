@@ -18,11 +18,14 @@ def _map_impact_warning(w) -> ImpactWarningResponse:
     )
 
 
-def run_review(req: ReviewRequest) -> ReviewResponse:
+def run_review(req: ReviewRequest, api_key: str = "", github_token: str = "") -> ReviewResponse:
     """Execute a PR review using the given request configuration.
 
     Args:
-        req: ReviewRequest with provider, model, credentials, and PR details.
+        req: ReviewRequest with provider, model, and PR details.
+        api_key: LLM provider API key (from Authorization header). Defaults to empty
+            string — the provider config falls back to env vars when empty.
+        github_token: GitHub personal access token (from X-GitHub-Token header).
 
     Returns:
         ReviewResponse with summary, approval, bugs, and impact warnings.
@@ -30,7 +33,7 @@ def run_review(req: ReviewRequest) -> ReviewResponse:
     provider_config = build_provider_config(
         req.provider,
         req.model,
-        req.api_key,
+        api_key,
         req.base_url_override,
     )
 
@@ -42,7 +45,7 @@ def run_review(req: ReviewRequest) -> ReviewResponse:
         pr_number=req.pr_number,
         provider_config=provider_config,
         supports_structured_output=supports_structured_output,
-        github_token=req.github_token,
+        github_token=github_token,
     )
 
     bugs = [
