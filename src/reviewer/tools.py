@@ -111,4 +111,27 @@ def post_review_comments(
 
     if response.status_code in (200, 201):
         return f"Review posted successfully on PR #{pr_number} in {owner}/{repo}."
+
+    if response.status_code == 422:
+        # Line numbers from the LLM may not match the diff — fall back to a
+        # top-level review comment listing all bugs without inline positions.
+        logger.warning(
+            "Inline comments rejected by GitHub (422 - line not in diff). "
+            "Falling back to top-level review comment."
+        )
+        bug_lines = "\n".join(
+            f"- **{c['path']}:{c['line']}** {c['body']}"
+            for c in payload["comments"]
+        )
+        fallback_payload = {
+            "commit_id": commit_sha,
+            "body": f"{summary}\n\n---\n\n**Bugs found:**\n{bug_lines}",
+            "event": "COMMENT",
+            "comments": [],
+        }
+        fallback = httpx.post(url, headers=headers, json=fallback_payload, timeout=30)
+        if fallback.status_code in (200, 201):
+            return f"Review posted as top-level comment on PR #{pr_number} (inline positions not in diff)."
+        return f"GitHub API error {fallback.status_code}: {fallback.text}"
+
     return f"GitHub API error {response.status_code}: {response.text}"

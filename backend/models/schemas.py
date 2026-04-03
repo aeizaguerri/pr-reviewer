@@ -9,7 +9,7 @@ class ReviewRequest(BaseModel):
     model: str = ""
     api_key: str = ""
     base_url_override: str = ""
-    github_token: str = ""
+    github_token: str
 
 
 class BugReportResponse(BaseModel):

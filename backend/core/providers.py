@@ -3,6 +3,7 @@
 Migrated from src/ui/config_adapter.py — same logic, same provider keys.
 """
 
+from backend.core.config import BackendConfig
 from backend.models.schemas import ProviderInfo
 
 # Models that support structured outputs (Pydantic schema)
@@ -81,8 +82,13 @@ def build_provider_config(
     # Ollama never needs a real API key
     if provider == "ollama":
         resolved_key = "ollama"
-    else:
+    elif api_key and api_key.strip():
         resolved_key = api_key
+    elif provider == "openai":
+        resolved_key = BackendConfig.OPENAI_API_KEY
+    else:
+        # cerebras and huggingface both use the HF key
+        resolved_key = BackendConfig.HUGGING_FACE_API_KEY
 
     return model_id, base_url, resolved_key
 

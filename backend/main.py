@@ -15,7 +15,8 @@ from backend.api.v1.routes import router
 from backend.core.config import BackendConfig
 from src.core.config import Config
 from src.core.logging_config import configure_logging
-from src.reviewer.agent import review_pr, review_pr_debug
+from src.core.observability import configure_opik
+from src.reviewer.agent import review_pr
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,8 @@ async def lifespan(app: FastAPI):
     This ensures that direct ``uvicorn backend.main:app`` invocations (which
     bypass ``main()``) still have logging configured before any request lands.
     """
-    configure_logging()
+    configure_logging(Config.LOG_LEVEL)
+    configure_opik()
     logger.info("PR Reviewer backend started")
     yield
 
@@ -138,33 +140,6 @@ async def github_webhook(
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
-
-
-def _cli_review(repo_slug: str, pr_number: int, debug: bool = False) -> None:
-    if "/" not in repo_slug:
-        logger.error("repo must be in 'owner/repo' format, got '%s'", repo_slug)
-        sys.exit(1)
-
-    owner, repo = repo_slug.split("/", 1)
-
-    if debug:
-        configure_logging("DEBUG")
-        print(f"\n[DEBUG] Reviewing PR #{pr_number} in {owner}/{repo}\n{'=' * 60}")
-        review_pr_debug(owner=owner, repo=repo, pr_number=pr_number)
-        return
-
-    print(f"Reviewing PR #{pr_number} in {owner}/{repo} ...")
-    result = review_pr(owner=owner, repo=repo, pr_number=pr_number)
-
-    print(f"\n{'=' * 60}")
-    print(f"Summary : {result.summary}")
-    print(f"Approved: {result.approved}")
-    print(f"Bugs    : {len(result.bugs)}")
-    for bug in result.bugs:
-        print(f"\n  [{bug.severity.upper()}] {bug.file}:{bug.line}")
-        print(f"  {bug.description}")
-        print(f"  Fix: {bug.suggestion}")
-    print(f"{'=' * 60}\n")
 
 
 def _cli_serve() -> None:
@@ -307,33 +282,20 @@ def main() -> None:
 
     if not args:
         print("Usage:")
-        print(
-            "  uv run python -m backend.main review <owner/repo> <pr_number> [--debug]"
-        )
         print("  uv run python -m backend.main serve")
         print("  uv run python -m backend.main graph <init|import|query>")
         sys.exit(0)
 
     command = args[0]
 
-    if command == "review":
-        positional = [a for a in args[1:] if not a.startswith("--")]
-        debug = "--debug" in args
-        if len(positional) != 2:
-            print(
-                "Usage: uv run python -m backend.main review <owner/repo> <pr_number> [--debug]"
-            )
-            sys.exit(1)
-        _cli_review(repo_slug=positional[0], pr_number=int(positional[1]), debug=debug)
-
-    elif command == "serve":
+    if command == "serve":
         _cli_serve()
 
     elif command == "graph":
         _cli_graph(args[1:])
 
     else:
-        print(f"Unknown command '{command}'. Use 'review', 'serve', or 'graph'.")
+        print(f"Unknown command '{command}'. Use 'serve' or 'graph'.")
         sys.exit(1)
 
 

@@ -48,6 +48,11 @@ class Config:
         "TRUSTED_AUTHOR_ASSOCIATIONS", "OWNER,MEMBER,COLLABORATOR"
     )
 
+    # Opik
+    OPIK_API_KEY: str = os.getenv("OPIK_API_KEY", "")
+    OPIK_PROJECT_NAME: str = os.getenv("OPIK_PROJECT_NAME", "pr-reviewer")
+    OPIK_WORKSPACE: str = os.getenv("OPIK_WORKSPACE", "")
+
     @classmethod
     def get_model_config(cls) -> tuple[str, str, str]:
         """Returns (model_id, base_url, api_key) for the configured DEFAULT_PROVIDER."""

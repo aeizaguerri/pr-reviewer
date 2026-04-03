@@ -7,6 +7,7 @@ from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
 
 from src.core.config import Config
+from src.core.observability import track_if_enabled
 from src.reviewer.models import BugReport, ReviewOutput
 from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
 from src.reviewer.tools import fetch_pr_data, post_review_comments
@@ -94,6 +95,13 @@ def _bugs_to_comments(bugs: list[BugReport]) -> list[dict]:
     ]
 
 
+@track_if_enabled(name="llm_call")
+def _run_llm(agent: Agent, prompt: str) -> str:
+    """Run the agent and return the raw response content as a string."""
+    run = agent.run(prompt)
+    return run.content if isinstance(run.content, str) else json.dumps(run.content.model_dump() if hasattr(run.content, "model_dump") else run.content)
+
+
 def _extract_changed_paths(diff_text: str) -> list[str]:
     """Extracts unique file paths from the diff text produced by ``fetch_pr_data()``.
 
@@ -126,6 +134,7 @@ def _extract_changed_paths(diff_text: str) -> list[str]:
     return paths
 
 
+@track_if_enabled()
 def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
     """Run the reviewer on the given pull request (silent mode)."""
     # Step 1: fetch diff programmatically
@@ -161,26 +170,18 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
 
     # Step 3: run LLM analysis with structured output
     agent = _build_agent(debug=False)
-    run = agent.run(prompt)
+    raw = _run_llm(agent, prompt)
 
-    # Handle case where content is not a ReviewOutput (e.g., parsing error or API failure)
-    if isinstance(run.content, str):
-        logger.warning(
-            f"Agent returned string instead of ReviewOutput: {run.content[:200]}"
+    try:
+        data = json.loads(raw)
+        result = ReviewOutput(**data)
+    except Exception:
+        logger.warning("Agent returned unparseable output: %s", raw[:200])
+        result = ReviewOutput(
+            summary=f"Error: Agent failed to produce valid output. Raw response: {raw[:500]}",
+            bugs=[],
+            approved=False,
         )
-        # Try to parse as fallback, otherwise return error result
-        try:
-            data = json.loads(run.content)
-            result = ReviewOutput(**data)
-        except Exception:
-            # Return a safe default error result
-            result = ReviewOutput(
-                summary=f"Error: Agent failed to produce valid output. Raw response: {run.content[:500]}",
-                bugs=[],
-                approved=False,
-            )
-    else:
-        result: ReviewOutput = run.content
 
     # Step 4: attach impact warnings to result
     if impact_result is not None:
@@ -189,7 +190,7 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
     # Step 5: post inline comments via GitHub API
     if result.bugs:
         comments = json.dumps(_bugs_to_comments(result.bugs))
-        post_review_comments(
+        gh_result = post_review_comments(
             owner=owner,
             repo=repo,
             pr_number=pr_number,
@@ -197,10 +198,12 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
             comments=comments,
             summary=result.summary,
         )
+        logger.info("GitHub review post result: %s", gh_result)
 
     return result
 
 
+@track_if_enabled(capture_input=False)
 def review_pr_with_config(
     owner: str,
     repo: str,
@@ -266,26 +269,18 @@ def review_pr_with_config(
         supports_structured_output=supports_structured_output,
         debug=False,
     )
-    run = agent.run(prompt)
+    raw = _run_llm(agent, prompt)
 
-    # Handle case where content is not a ReviewOutput (e.g., parsing error or API failure)
-    if isinstance(run.content, str):
-        logger.warning(
-            f"Agent returned string instead of ReviewOutput: {run.content[:200]}"
+    try:
+        data = json.loads(raw)
+        result = ReviewOutput(**data)
+    except Exception:
+        logger.warning("Agent returned unparseable output: %s", raw[:200])
+        result = ReviewOutput(
+            summary=f"Error: Agent failed to produce valid output. Raw response: {raw[:500]}",
+            bugs=[],
+            approved=False,
         )
-        # Try to parse as fallback, otherwise return error result
-        try:
-            data = json.loads(run.content)
-            result = ReviewOutput(**data)
-        except Exception:
-            # Return a safe default error result
-            result = ReviewOutput(
-                summary=f"Error: Agent failed to produce valid output. Raw response: {run.content[:500]}",
-                bugs=[],
-                approved=False,
-            )
-    else:
-        result: ReviewOutput = run.content
 
     # Step 4: attach impact warnings
     if impact_result is not None:
@@ -294,7 +289,7 @@ def review_pr_with_config(
     # Step 5: post inline comments via GitHub API
     if result.bugs:
         comments = json.dumps(_bugs_to_comments(result.bugs))
-        post_review_comments(
+        gh_result = post_review_comments(
             owner=owner,
             repo=repo,
             pr_number=pr_number,
@@ -303,88 +298,6 @@ def review_pr_with_config(
             summary=result.summary,
             github_token=github_token,
         )
+        logger.info("GitHub review post result: %s", gh_result)
 
     return result
-
-
-def review_pr_debug(owner: str, repo: str, pr_number: int) -> None:
-    """Run the reviewer with full verbose output streamed to the terminal."""
-    # Step 1: fetch diff programmatically
-    print("=== [fetch_pr_data] fetching diff from GitHub ===")
-    diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number)
-    print(f"PR title: {pr_title}")
-    print(f"head_sha: {head_sha}")
-    print(
-        f"--- diff ({len(diff_text)} chars) ---\n{diff_text[:2000]}{'...' if len(diff_text) > 2000 else ''}"
-    )
-
-    # Step 2: graph enrichment debug
-    prompt = _make_prompt(pr_title, diff_text)
-    impact_result = None
-
-    if Config.ENABLE_GRAPH_ENRICHMENT:
-        print("\n=== [graph enrichment] ENABLE_GRAPH_ENRICHMENT=true ===")
-        try:
-            from src.knowledge.client import check_health, get_driver
-            from src.knowledge.queries import find_consumers_of_paths
-
-            changed_paths = _extract_changed_paths(diff_text)
-            print(f"Files scanned: {len(changed_paths)}")
-            for p in changed_paths:
-                print(f"  - {p}")
-
-            if check_health():
-                driver = get_driver()
-                impact_result = find_consumers_of_paths(
-                    driver,
-                    changed_paths,
-                    timeout=Config.GRAPH_QUERY_TIMEOUT,
-                )
-                print(f"Impact warnings found: {len(impact_result.warnings)}")
-                print(f"Query time: {impact_result.query_time_ms:.1f}ms")
-
-                if impact_result.warnings:
-                    impact_section = _build_impact_section(impact_result)
-                    if impact_section:
-                        prompt = impact_section + "\n\n" + prompt
-                        print("\n--- Injected impact section ---")
-                        print(impact_section)
-                        print("--- End of impact section ---")
-            else:
-                print("Neo4j is not reachable — skipping graph enrichment.")
-
-        except Exception as exc:
-            print(f"Graph enrichment error (continuing without it): {exc}")
-            impact_result = None
-    else:
-        print("\n[graph enrichment] ENABLE_GRAPH_ENRICHMENT=false — skipped.")
-
-    print("\n=== [agent.run] sending diff to LLM ===")
-
-    # Step 3: run LLM analysis (streamed)
-    agent = _build_agent(debug=True)
-    run = agent.run(prompt)
-    result: ReviewOutput = run.content
-
-    # Step 4: attach impact warnings
-    if impact_result is not None:
-        result.impact_warnings = impact_result.warnings
-
-    print("\n=== [ReviewOutput] ===")
-    print(result.model_dump_json(indent=2))
-
-    # Step 5: post inline comments
-    if result.bugs:
-        print("\n=== [post_review_comments] posting to GitHub ===")
-        comments = json.dumps(_bugs_to_comments(result.bugs))
-        outcome = post_review_comments(
-            owner=owner,
-            repo=repo,
-            pr_number=pr_number,
-            commit_sha=head_sha,
-            comments=comments,
-            summary=result.summary,
-        )
-        print(outcome)
-    else:
-        print("\nNo bugs found — skipping post_review_comments.")

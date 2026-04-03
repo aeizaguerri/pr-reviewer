@@ -62,7 +62,8 @@ docker compose up --build
 Copia `.env.example` a `.env` y completa las variables:
 
 ```env
-# ── Backend ──────────────────────────────────────────────
+# ── Backend ──────────────────────────────────────────────────────────────────
+
 # Neo4j (usa Neo4j Aura en producción)
 NEO4J_URI=neo4j+s://xxxx.databases.neo4j.io
 NEO4J_USER=neo4j
@@ -74,14 +75,27 @@ ENABLE_GRAPH_ENRICHMENT=false
 # Webhook GitHub (credenciales de sistema)
 GITHUB_ACCESS_TOKEN=ghp_tu_token
 GITHUB_WEBHOOK_SECRET=tu_secreto_webhook   # genera con: openssl rand -hex 32
+
+# LLM provider
 DEFAULT_PROVIDER=cerebras
+DEFAULT_MODEL=moonshotai/Kimi-K2-Instruct  # modelo por defecto
 HUGGING_FACE_API_KEY=hf_tu_key
+HUGGING_FACE_API_URL=https://router.huggingface.co/v1
+OLLAMA_API_URL=http://localhost:11434/v1   # solo si usás el provider ollama
 
 # CORS — URL del frontend
 CORS_ORIGINS=http://localhost:8501
 
-# ── Frontend ─────────────────────────────────────────────
-BACKEND_URL=http://backend:8000   # en docker-compose usa el nombre del servicio
+# Logging
+LOG_LEVEL=INFO                             # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+# Opik (observabilidad LLM — opcional, desactivado si no se define OPIK_API_KEY)
+OPIK_API_KEY=                              # obtén tu key en app.comet.com
+OPIK_PROJECT_NAME=pr-reviewer              # nombre del proyecto en Opik
+OPIK_WORKSPACE=                            # workspace de Opik (opcional)
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+BACKEND_URL=http://backend:8000            # en docker-compose usa el nombre del servicio
 ```
 
 El token de GitHub necesita permisos `repo` (repositorios privados) o `public_repo` (públicos).
@@ -98,12 +112,6 @@ Abre `http://localhost:8501` en el navegador:
 ## Uso via CLI
 
 ```bash
-# Revisar un PR desde la línea de comandos
-uv run python -m backend.main review octocat/Hello-World 42
-
-# Con salida detallada (debug)
-uv run python -m backend.main review octocat/Hello-World 42 --debug
-
 # Iniciar el servidor API (backend solo)
 uv run python -m backend.main serve
 ```
@@ -203,9 +211,13 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 │   ├── streamlit_app.py         # UI: form + httpx calls al backend
 │   ├── Dockerfile               # Imagen Docker del frontend
 │   └── pyproject.toml           # Dependencias del frontend (streamlit + httpx)
+├── prompts/
+│   └── reviewer_instructions.txt # Prompt del agente (versionado + fallback Opik)
 ├── src/                         # Capa de dominio (importada por backend)
 │   ├── core/
 │   │   ├── config.py            # Config: variables de entorno
+│   │   ├── observability.py     # Opik: configure_opik(), get_reviewer_prompt(), track_if_enabled()
+│   │   ├── logging_config.py    # Logging centralizado
 │   │   └── exceptions.py        # Excepciones personalizadas (GraphError…)
 │   ├── knowledge/               # Módulo Knowledge Graph
 │   │   ├── client.py            # Driver Neo4j: get_driver(), check_health()
@@ -246,4 +258,4 @@ uv run pytest tests/ -m "not integration"
 uv run pytest tests/
 ```
 
-Los 121 tests cubren los módulos `core`, `reviewer` y `knowledge`.
+Los 214 tests cubren los módulos `core`, `reviewer`, `knowledge` y `observability`.

@@ -11,4 +11,6 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "neo4j>=5.0.0",
     "pyyaml>=6.0",
+    "opik",
+    "openinference-instrumentation-agno",
 ]
