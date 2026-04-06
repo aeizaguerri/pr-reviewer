@@ -68,8 +68,7 @@ def _populate_tx(tx: ManagedTransaction, topology: TopologyConfig) -> dict:
     for repo_def in topology.repositories:
         # MERGE Repository
         tx.run(
-            f"MERGE (r:{REPOSITORY} {{name: $name}}) "
-            f"SET r.description = $description",
+            f"MERGE (r:{REPOSITORY} {{name: $name}}) SET r.description = $description",
             name=repo_def.name,
             description=repo_def.description,
         )
@@ -147,6 +146,7 @@ def _populate_tx(tx: ManagedTransaction, topology: TopologyConfig) -> dict:
             for contract_name in svc_def.consumes:
                 tx.run(
                     f"MERGE (c:{CONTRACT} {{name: $contract_name}}) "
+                    f"SET c.file_path = null "
                     f"WITH c "
                     f"MATCH (s:{SERVICE} {{name: $svc_name}}) "
                     f"MERGE (s)-[:{CONSUMES}]->(c)",

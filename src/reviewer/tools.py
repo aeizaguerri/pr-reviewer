@@ -10,6 +10,20 @@ from src.core.config import Config
 logger = logging.getLogger(__name__)
 
 
+def _post_review_with_retry(url: str, headers: dict, json: dict) -> httpx.Response:
+    """Post to GitHub API with retry logic."""
+    for attempt in range(3):
+        try:
+            response = httpx.post(url, headers=headers, json=json, timeout=30)
+            if response.status_code < 500:
+                return response
+        except httpx.RequestError as exc:
+            logger.warning("GitHub API request failed (attempt %d): %s", attempt + 1, exc)
+        except Exception as exc:
+            logger.warning("Unexpected error calling GitHub API: %s", exc)
+    return httpx.Response(503, text="Service unavailable after retries")
+
+
 def fetch_pr_data(
     owner: str, repo: str, pr_number: int, github_token: str = ""
 ) -> tuple[str, str, str]:
@@ -40,18 +54,30 @@ def fetch_pr_data(
 
     diff_text = "\n\n".join(diff_parts)
 
-    # L5: Truncate oversized diffs
+    # L5: Truncate oversized diffs at file boundary
     max_chars = Config.MAX_DIFF_CHARS
-    if len(diff_text) > max_chars:
+    original_len = len(diff_text)
+    if original_len > max_chars:
+        truncated_parts = []
+        current_chars = 0
+        for part in diff_parts:
+            if current_chars + len(part) > max_chars:
+                remaining = max_chars - current_chars
+                if remaining > 0:
+                    truncated_parts.append(part[:remaining])
+                break
+            truncated_parts.append(part)
+            current_chars += len(part)
+        diff_text = "\n\n".join(truncated_parts)
+        diff_text += "\n\n[TRUNCATED — diff exceeded size limit]"
         logger.warning(
             "Diff for %s/%s#%d truncated: %d → %d chars",
             owner,
             repo,
             pr_number,
-            len(diff_text),
+            original_len,
             max_chars,
         )
-        diff_text = diff_text[:max_chars] + "\n\n[TRUNCATED — diff exceeded size limit]"
 
     return diff_text, head_sha, pr_title
 
@@ -105,14 +131,12 @@ def post_review_comments(
         ],
     }
 
-    response = httpx.post(url, headers=headers, json=payload, timeout=30)
+    response = _post_review_with_retry(url, headers=headers, json=payload)
 
     if response.status_code in (200, 201):
         return f"Review posted successfully on PR #{pr_number} in {owner}/{repo}."
 
     if response.status_code == 422:
-        # Line numbers from the LLM may not match the diff — fall back to a
-        # top-level review comment listing all bugs without inline positions.
         logger.warning(
             "Inline comments rejected by GitHub (422 - line not in diff). "
             "Falling back to top-level review comment."
@@ -126,7 +150,7 @@ def post_review_comments(
             "event": "COMMENT",
             "comments": [],
         }
-        fallback = httpx.post(url, headers=headers, json=fallback_payload, timeout=30)
+        fallback = _post_review_with_retry(url, headers=headers, json=fallback_payload)
         if fallback.status_code in (200, 201):
             return f"Review posted as top-level comment on PR #{pr_number} (inline positions not in diff)."
         return f"GitHub API error {fallback.status_code}: {fallback.text}"

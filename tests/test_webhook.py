@@ -74,9 +74,7 @@ class TestAuthorAssociationGating:
         """SC-L1-1: OWNER association → review_pr() is called."""
         _, _, main_module = client
         mock_result = MagicMock(approved=True, bugs=[], summary="ok")
-        with patch.object(
-            main_module, "review_pr", return_value=mock_result
-        ) as mock_review:
+        with patch.object(main_module, "review_pr", return_value=mock_result) as mock_review:
             resp = _post(client, _make_payload("OWNER"))
 
         assert resp.status_code == 202
@@ -87,9 +85,7 @@ class TestAuthorAssociationGating:
         """SC-L1-1 (MEMBER): MEMBER association → review_pr() is called."""
         _, _, main_module = client
         mock_result = MagicMock(approved=True, bugs=[], summary="ok")
-        with patch.object(
-            main_module, "review_pr", return_value=mock_result
-        ) as mock_review:
+        with patch.object(main_module, "review_pr", return_value=mock_result) as mock_review:
             resp = _post(client, _make_payload("MEMBER"))
 
         assert resp.status_code == 202
@@ -100,9 +96,7 @@ class TestAuthorAssociationGating:
         """SC-L1-1 (COLLABORATOR): COLLABORATOR association → review_pr() is called."""
         _, _, main_module = client
         mock_result = MagicMock(approved=True, bugs=[], summary="ok")
-        with patch.object(
-            main_module, "review_pr", return_value=mock_result
-        ) as mock_review:
+        with patch.object(main_module, "review_pr", return_value=mock_result) as mock_review:
             resp = _post(client, _make_payload("COLLABORATOR"))
 
         assert resp.status_code == 202
@@ -118,7 +112,7 @@ class TestAuthorAssociationGating:
         assert resp.status_code == 202
         data = resp.json()
         assert data["status"] == "skipped"
-        assert "untrusted" in data["reason"]
+        # No reason field - security: don't leak trust config to untrusted authors
         mock_review.assert_not_called()
 
     def test_first_timer_skips_review(self, client):
@@ -185,18 +179,14 @@ class TestAuthorAssociationGating:
         monkeypatch.setattr(cfg_module.Config, "TRUSTED_AUTHOR_ASSOCIATIONS", "")
 
         mock_result = MagicMock(approved=True, bugs=[], summary="ok")
-        with patch.object(
-            main_module, "review_pr", return_value=mock_result
-        ) as mock_review:
+        with patch.object(main_module, "review_pr", return_value=mock_result) as mock_review:
             resp = _post(client, _make_payload("OWNER"))
 
         assert resp.status_code == 202
         assert resp.json()["status"] == "reviewed"
         mock_review.assert_called_once()
 
-    def test_lowercase_trusted_list_matches_uppercase_association(
-        self, client, monkeypatch
-    ):
+    def test_lowercase_trusted_list_matches_uppercase_association(self, client, monkeypatch):
         """Case-insensitivity: lowercase env var values must match GitHub's uppercase values."""
         _, _, main_module = client
         import src.core.config as cfg_module
@@ -208,9 +198,7 @@ class TestAuthorAssociationGating:
         )
 
         mock_result = MagicMock(approved=True, bugs=[], summary="ok")
-        with patch.object(
-            main_module, "review_pr", return_value=mock_result
-        ) as mock_review:
+        with patch.object(main_module, "review_pr", return_value=mock_result) as mock_review:
             resp = _post(client, _make_payload("OWNER"))
 
         assert resp.status_code == 202
@@ -222,9 +210,7 @@ class TestAuthorAssociationGating:
         _, _, main_module = client
         import src.core.config as cfg_module
 
-        monkeypatch.setattr(
-            cfg_module.Config, "TRUSTED_AUTHOR_ASSOCIATIONS", "OWNER,MEMBER"
-        )
+        monkeypatch.setattr(cfg_module.Config, "TRUSTED_AUTHOR_ASSOCIATIONS", "OWNER,MEMBER")
 
         with patch.object(main_module, "review_pr") as mock_review:
             resp = _post(client, _make_payload("CONTRIBUTOR"))
@@ -238,14 +224,10 @@ class TestAuthorAssociationGating:
         _, _, main_module = client
         import src.core.config as cfg_module
 
-        monkeypatch.setattr(
-            cfg_module.Config, "TRUSTED_AUTHOR_ASSOCIATIONS", "OWNER,MEMBER"
-        )
+        monkeypatch.setattr(cfg_module.Config, "TRUSTED_AUTHOR_ASSOCIATIONS", "OWNER,MEMBER")
 
         mock_result = MagicMock(approved=True, bugs=[], summary="ok")
-        with patch.object(
-            main_module, "review_pr", return_value=mock_result
-        ) as mock_review:
+        with patch.object(main_module, "review_pr", return_value=mock_result) as mock_review:
             resp = _post(client, _make_payload("OWNER"))
 
         assert resp.status_code == 202

@@ -24,6 +24,8 @@ def review_pr(
 ) -> ReviewResponse:
     """Run a code review on the given pull request."""
     api_key = re.sub(r"(?i)^bearer\s+", "", authorization).strip()
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API key must be non-empty")
     if not x_github_token.strip():
         raise HTTPException(status_code=401, detail="X-GitHub-Token must be non-empty")
     return run_review(req, api_key=api_key, github_token=x_github_token)

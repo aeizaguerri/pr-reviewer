@@ -1,7 +1,9 @@
 import html
 import json
 import logging
+import os
 import re
+from pathlib import Path
 
 from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
@@ -13,6 +15,15 @@ from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
 from src.reviewer.tools import fetch_pr_data, post_review_comments
 
 logger = logging.getLogger(__name__)
+
+
+def _log_full_llm_response(raw: str, owner: str, repo: str, pr_number: int) -> None:
+    """Log full raw LLM response to a file for debugging."""
+    log_dir = Path("/tmp/pr-reviewer-logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"llm-fail-{owner}-{repo}-{pr_number}.txt"
+    log_file.write_text(raw)
+    logger.warning("Agent returned unparseable output. Full response logged to %s", log_file)
 
 
 def _build_agent(debug: bool = False) -> Agent:
@@ -99,7 +110,13 @@ def _bugs_to_comments(bugs: list[BugReport]) -> list[dict]:
 def _run_llm(agent: Agent, prompt: str) -> str:
     """Run the agent and return the raw response content as a string."""
     run = agent.run(prompt)
-    return run.content if isinstance(run.content, str) else json.dumps(run.content.model_dump() if hasattr(run.content, "model_dump") else run.content)
+    return (
+        run.content
+        if isinstance(run.content, str)
+        else json.dumps(
+            run.content.model_dump() if hasattr(run.content, "model_dump") else run.content
+        )
+    )
 
 
 def _extract_changed_paths(diff_text: str) -> list[str]:
@@ -134,14 +151,11 @@ def _extract_changed_paths(diff_text: str) -> list[str]:
     return paths
 
 
-@track_if_enabled()
-def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
-    """Run the reviewer on the given pull request (silent mode)."""
-    # Step 1: fetch diff programmatically
-    diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number)
-
-    # Step 2: graph enrichment (optional, behind feature toggle)
-    prompt = _make_prompt(pr_title, diff_text)
+def _enrich_with_graph(
+    diff_text: str,
+) -> tuple[str, list | None]:
+    """Enrich prompt with graph data if available. Returns (prompt, impact_result)."""
+    prompt = ""
     impact_result = None
 
     if Config.ENABLE_GRAPH_ENRICHMENT:
@@ -161,12 +175,25 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
                     if impact_result.warnings:
                         impact_section = _build_impact_section(impact_result)
                         if impact_section:
-                            prompt = impact_section + "\n\n" + prompt
+                            prompt = impact_section + "\n\n"
             else:
                 logger.warning("Graph enrichment skipped: Neo4j is not reachable.")
         except Exception as exc:
             logger.warning("Graph enrichment failed — continuing without it: %s", exc)
             impact_result = None
+
+    return prompt, impact_result
+
+
+@track_if_enabled()
+def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
+    """Run the reviewer on the given pull request (silent mode)."""
+    # Step 1: fetch diff programmatically
+    diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number)
+
+    # Step 2: graph enrichment (optional, behind feature toggle)
+    impact_section, impact_result = _enrich_with_graph(diff_text)
+    prompt = impact_section + _make_prompt(pr_title, diff_text)
 
     # Step 3: run LLM analysis with structured output
     agent = _build_agent(debug=False)
@@ -176,12 +203,14 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
         data = json.loads(raw)
         result = ReviewOutput(**data)
     except Exception:
-        logger.warning("Agent returned unparseable output: %s", raw[:200])
+        _log_full_llm_response(raw, owner, repo, pr_number)
         result = ReviewOutput(
-            summary=f"Error: Agent failed to produce valid output. Raw response: {raw[:500]}",
+            summary=f"Error: Agent failed to produce valid output.",
             bugs=[],
             approved=False,
+            impact_warnings=[],
         )
+        return result
 
     # Step 4: attach impact warnings to result
     if impact_result is not None:
@@ -231,37 +260,11 @@ def review_pr_with_config(
         ReviewOutput with bugs, summary, and approval status.
     """
     # Step 1: fetch diff
-    diff_text, head_sha, pr_title = fetch_pr_data(
-        owner, repo, pr_number, github_token=github_token
-    )
+    diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number, github_token=github_token)
 
     # Step 2: graph enrichment (optional, behind feature toggle — same as review_pr)
-    prompt = _make_prompt(pr_title, diff_text)
-    impact_result = None
-
-    if Config.ENABLE_GRAPH_ENRICHMENT:
-        try:
-            from src.knowledge.client import check_health, get_driver
-            from src.knowledge.queries import find_consumers_of_paths
-
-            if check_health():
-                changed_paths = _extract_changed_paths(diff_text)
-                if changed_paths:
-                    driver = get_driver()
-                    impact_result = find_consumers_of_paths(
-                        driver,
-                        changed_paths,
-                        timeout=Config.GRAPH_QUERY_TIMEOUT,
-                    )
-                    if impact_result.warnings:
-                        impact_section = _build_impact_section(impact_result)
-                        if impact_section:
-                            prompt = impact_section + "\n\n" + prompt
-            else:
-                logger.warning("Graph enrichment skipped: Neo4j is not reachable.")
-        except Exception as exc:
-            logger.warning("Graph enrichment failed — continuing without it: %s", exc)
-            impact_result = None
+    impact_section, impact_result = _enrich_with_graph(diff_text)
+    prompt = impact_section + _make_prompt(pr_title, diff_text)
 
     # Step 3: run LLM analysis with injected config
     agent = _build_agent_with_config(
@@ -275,12 +278,14 @@ def review_pr_with_config(
         data = json.loads(raw)
         result = ReviewOutput(**data)
     except Exception:
-        logger.warning("Agent returned unparseable output: %s", raw[:200])
+        _log_full_llm_response(raw, owner, repo, pr_number)
         result = ReviewOutput(
-            summary=f"Error: Agent failed to produce valid output. Raw response: {raw[:500]}",
+            summary=f"Error: Agent failed to produce valid output.",
             bugs=[],
             approved=False,
+            impact_warnings=[],
         )
+        return result
 
     # Step 4: attach impact warnings
     if impact_result is not None:
