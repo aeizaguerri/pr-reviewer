@@ -10,6 +10,9 @@ from src.core.config import Config
 logger = logging.getLogger(__name__)
 
 
+TRUNCATION_MARKER = "\n\n[TRUNCATED - diff exceeded size limit]"
+
+
 def _post_review_with_retry(url: str, headers: dict, json: dict) -> httpx.Response:
     """Post to GitHub API with retry logic."""
     for attempt in range(3):
@@ -60,16 +63,16 @@ def fetch_pr_data(
     if original_len > max_chars:
         truncated_parts = []
         current_chars = 0
+        content_budget = max(max_chars - len(TRUNCATION_MARKER), 0)
         for part in diff_parts:
-            if current_chars + len(part) > max_chars:
-                remaining = max_chars - current_chars
-                if remaining > 0:
-                    truncated_parts.append(part[:remaining])
+            separator_len = 0 if not truncated_parts else 2
+            part_len = separator_len + len(part)
+            if current_chars + part_len > content_budget:
                 break
             truncated_parts.append(part)
-            current_chars += len(part)
+            current_chars += part_len
         diff_text = "\n\n".join(truncated_parts)
-        diff_text += "\n\n[TRUNCATED — diff exceeded size limit]"
+        diff_text += TRUNCATION_MARKER[: max_chars - len(diff_text)]
         logger.warning(
             "Diff for %s/%s#%d truncated: %d → %d chars",
             owner,

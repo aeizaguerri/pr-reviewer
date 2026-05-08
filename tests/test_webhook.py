@@ -112,6 +112,7 @@ class TestAuthorAssociationGating:
         assert resp.status_code == 202
         data = resp.json()
         assert data["status"] == "skipped"
+        assert "reason" not in data
         # No reason field - security: don't leak trust config to untrusted authors
         mock_review.assert_not_called()
 
@@ -122,7 +123,9 @@ class TestAuthorAssociationGating:
             resp = _post(client, _make_payload("FIRST_TIMER"))
 
         assert resp.status_code == 202
-        assert resp.json()["status"] == "skipped"
+        data = resp.json()
+        assert data["status"] == "skipped"
+        assert "reason" not in data
         mock_review.assert_not_called()
 
     def test_first_time_contributor_skips_review(self, client):
@@ -132,7 +135,9 @@ class TestAuthorAssociationGating:
             resp = _post(client, _make_payload("FIRST_TIME_CONTRIBUTOR"))
 
         assert resp.status_code == 202
-        assert resp.json()["status"] == "skipped"
+        data = resp.json()
+        assert data["status"] == "skipped"
+        assert "reason" not in data
         mock_review.assert_not_called()
 
     def test_missing_author_association_defaults_to_skip(self, client):
@@ -142,7 +147,9 @@ class TestAuthorAssociationGating:
             resp = _post(client, _make_payload(None))
 
         assert resp.status_code == 202
-        assert resp.json()["status"] == "skipped"
+        data = resp.json()
+        assert data["status"] == "skipped"
+        assert "reason" not in data
         mock_review.assert_not_called()
 
     def test_null_author_association_is_skipped(self, client):
@@ -158,7 +165,9 @@ class TestAuthorAssociationGating:
             resp = _post(client, payload)
 
         assert resp.status_code == 202
-        assert resp.json()["status"] == "skipped"
+        data = resp.json()
+        assert data["status"] == "skipped"
+        assert "reason" not in data
         mock_review.assert_not_called()
 
     def test_contributor_blocked_with_default_config(self, client):
@@ -168,7 +177,9 @@ class TestAuthorAssociationGating:
             resp = _post(client, _make_payload("CONTRIBUTOR"))
 
         assert resp.status_code == 202
-        assert resp.json()["status"] == "skipped"
+        data = resp.json()
+        assert data["status"] == "skipped"
+        assert "reason" not in data
         mock_review.assert_not_called()
 
     def test_empty_trusted_list_falls_back_to_default(self, client, monkeypatch):

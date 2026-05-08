@@ -5,8 +5,16 @@ description = "PR Code Reviewer"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "agno>=1.7.0",
+    "openai>=1.0.0",
     "opik",
     "openinference-instrumentation-agno",
+    "pygithub>=2.0.0",
+    "httpx>=0.28.0",
+    "fastapi[standard]>=0.115.0",
+    "python-dotenv>=1.2.1",
+    "neo4j>=5.0.0",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

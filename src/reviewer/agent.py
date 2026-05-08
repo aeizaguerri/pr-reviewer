@@ -17,13 +17,39 @@ from src.reviewer.tools import fetch_pr_data, post_review_comments
 logger = logging.getLogger(__name__)
 
 
+def _debug_raw_llm_logging_enabled() -> bool:
+    return os.getenv("PR_REVIEWER_LOG_RAW_LLM_FAILURES", "false").lower() == "true"
+
+
 def _log_full_llm_response(raw: str, owner: str, repo: str, pr_number: int) -> None:
     """Log full raw LLM response to a file for debugging."""
+    if not _debug_raw_llm_logging_enabled():
+        preview = " ".join(raw.split())[:200]
+        logger.warning(
+            "Agent returned unparseable output for %s/%s#%d. Response length=%d preview=%r",
+            owner,
+            repo,
+            pr_number,
+            len(raw),
+            preview,
+        )
+        return
+
     log_dir = Path("/tmp/pr-reviewer-logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"llm-fail-{owner}-{repo}-{pr_number}.txt"
     log_file.write_text(raw)
     logger.warning("Agent returned unparseable output. Full response logged to %s", log_file)
+
+
+def _parse_failure_result(impact_result) -> ReviewOutput:
+    warnings = impact_result.warnings if impact_result is not None else []
+    return ReviewOutput(
+        summary="Error: Agent failed to produce valid output.",
+        bugs=[],
+        approved=False,
+        impact_warnings=warnings,
+    )
 
 
 def _build_agent(debug: bool = False) -> Agent:
@@ -204,12 +230,7 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
         result = ReviewOutput(**data)
     except Exception:
         _log_full_llm_response(raw, owner, repo, pr_number)
-        result = ReviewOutput(
-            summary=f"Error: Agent failed to produce valid output.",
-            bugs=[],
-            approved=False,
-            impact_warnings=[],
-        )
+        result = _parse_failure_result(impact_result)
         return result
 
     # Step 4: attach impact warnings to result
@@ -279,12 +300,7 @@ def review_pr_with_config(
         result = ReviewOutput(**data)
     except Exception:
         _log_full_llm_response(raw, owner, repo, pr_number)
-        result = ReviewOutput(
-            summary=f"Error: Agent failed to produce valid output.",
-            bugs=[],
-            approved=False,
-            impact_warnings=[],
-        )
+        result = _parse_failure_result(impact_result)
         return result
 
     # Step 4: attach impact warnings
