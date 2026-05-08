@@ -1,4 +1,4 @@
-"""Local conftest for test_api — no neo4j imports needed here."""
+"""Backend-wide pytest fixtures."""
 
 from unittest.mock import patch
 
