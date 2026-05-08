@@ -141,7 +141,13 @@ def _make_topology_with_consumer() -> TopologyConfig:
                 services=[
                     ServiceDef(
                         name="producer-svc",
-                        produces=[ContractDef(name="SharedContract", type="event")],
+                        produces=[
+                            ContractDef(
+                                name="SharedContract",
+                                file_path="src/contracts/shared_contract.py",
+                                type="event",
+                            )
+                        ],
                         consumes=[],
                     )
                 ],
@@ -261,6 +267,15 @@ class TestPopulateGraph:
         calls_args = [str(c) for c in mock_tx.run.call_args_list]
         consumes_calls = [c for c in calls_args if "CONSUMES" in c]
         assert len(consumes_calls) >= 1, "Expected at least one MERGE for CONSUMES relationship"
+
+    def test_populate_graph_consumer_merge_does_not_clear_producer_file_path(self):
+        driver, mock_tx = self._make_mock_driver()
+        topology = _make_topology_with_consumer()
+        populate_graph(driver, topology)
+
+        consumes_queries = [call.args[0] for call in mock_tx.run.call_args_list if "CONSUMES" in call.args[0]]
+        assert len(consumes_queries) == 1
+        assert "SET c.file_path = null" not in consumes_queries[0]
 
     def test_populate_graph_field_nodes_are_merged(self):
         driver, mock_tx = self._make_mock_driver()

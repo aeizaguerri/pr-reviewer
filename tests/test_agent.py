@@ -1,8 +1,11 @@
-"""Unit tests: L3 (XML delimiters) and L4 (title sanitization) in agent.py."""
+"""Unit tests: agent prompt, sanitization, and parse-failure behavior."""
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.reviewer.agent import _make_prompt, _sanitize_title
+from src.knowledge.models import ImpactResult, ImpactWarning
+from src.reviewer.agent import _log_full_llm_response, _make_prompt, _sanitize_title
 
 
 # ---------------------------------------------------------------------------
@@ -187,3 +190,54 @@ class TestMakePrompt:
         prompt = _make_prompt(malicious_title, "diff")
         assert prompt.count("<pr_title>") == 1  # only the real opening tag
         assert "&lt;pr_title&gt;" in prompt
+
+
+class TestParseFailureLogging:
+    def test_raw_response_is_not_written_to_disk_without_debug_flag(self, monkeypatch, caplog):
+        monkeypatch.delenv("PR_REVIEWER_LOG_RAW_LLM_FAILURES", raising=False)
+
+        with (
+            patch("src.reviewer.agent.Path.mkdir") as mock_mkdir,
+            patch("pathlib.Path.write_text") as mock_write_text,
+            caplog.at_level("WARNING", logger="src.reviewer.agent"),
+        ):
+            _log_full_llm_response("secret response\nwith details", "owner", "repo", 7)
+
+        mock_mkdir.assert_not_called()
+        mock_write_text.assert_not_called()
+        assert "Response length=" in " ".join(caplog.messages)
+
+
+class TestParseFailureImpactWarnings:
+    def test_review_pr_preserves_impact_warnings_on_parse_failure(self, monkeypatch):
+        warning = ImpactWarning(
+            changed_file="src/contracts/order.py",
+            changed_entity="OrderCreated",
+            affected_service="payment-worker",
+            affected_repository="payment-service",
+            relationship_type="CONSUMES",
+            description="`payment-worker` consumes `OrderCreated`.",
+        )
+        impact_result = ImpactResult(warnings=[warning], query_time_ms=1.0)
+        monkeypatch.setattr("src.core.config.Config.ENABLE_GRAPH_ENRICHMENT", True)
+
+        with (
+            patch("src.reviewer.agent.fetch_pr_data", return_value=("### src/contracts/order.py\npatch", "sha", "PR")),
+            patch("src.reviewer.agent._build_agent") as mock_build_agent,
+            patch("src.reviewer.agent.post_review_comments"),
+            patch("src.knowledge.client.check_health", return_value=True),
+            patch("src.knowledge.client.get_driver", return_value=object()),
+            patch("src.knowledge.queries.find_consumers_of_paths", return_value=impact_result),
+            patch("src.reviewer.agent._log_full_llm_response"),
+        ):
+            mock_run = MagicMock()
+            mock_run.content = "not json"
+            mock_build_agent.return_value.run = MagicMock(return_value=mock_run)
+
+            from src.reviewer.agent import review_pr
+
+            result = review_pr("owner", "repo", 1)
+
+        assert result.approved is False
+        assert result.summary == "Error: Agent failed to produce valid output."
+        assert result.impact_warnings == [warning]

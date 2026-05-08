@@ -64,6 +64,17 @@ async def lifespan(app: FastAPI):
     """
     configure_logging(Config.LOG_LEVEL)
     configure_opik()
+
+    try:
+        Config.validate()
+    except ValueError as exc:
+        logger.warning("Config validation warning: %s", exc)
+
+    try:
+        BackendConfig.validate()
+    except ValueError as exc:
+        logger.warning("BackendConfig validation warning: %s", exc)
+
     logger.info("PR Reviewer backend started")
     yield
 
@@ -119,10 +130,7 @@ async def github_webhook(
         )
         trusted = {"OWNER", "MEMBER", "COLLABORATOR"}
     if author_association not in trusted:
-        return {
-            "status": "skipped",
-            "reason": f"untrusted author association: {author_association}",
-        }
+        return {"status": "skipped"}
 
     owner, repo = repo_full.split("/", 1)
 

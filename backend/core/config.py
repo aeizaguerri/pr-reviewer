@@ -32,10 +32,17 @@ class BackendConfig:
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "")
 
+    @classmethod
+    def validate(cls) -> None:
+        """Validate required configuration. Raises ValueError if invalid."""
+        if cls.ENABLE_GRAPH_ENRICHMENT:
+            if not cls.NEO4J_PASSWORD:
+                raise ValueError("NEO4J_PASSWORD is required when ENABLE_GRAPH_ENRICHMENT is true")
+            if not cls.NEO4J_URI:
+                raise ValueError("NEO4J_URI is required when ENABLE_GRAPH_ENRICHMENT is true")
+
     # Knowledge Graph
-    ENABLE_GRAPH_ENRICHMENT: bool = (
-        os.getenv("ENABLE_GRAPH_ENRICHMENT", "false").lower() == "true"
-    )
+    ENABLE_GRAPH_ENRICHMENT: bool = os.getenv("ENABLE_GRAPH_ENRICHMENT", "false").lower() == "true"
     GRAPH_QUERY_TIMEOUT: int = int(os.getenv("GRAPH_QUERY_TIMEOUT", "5"))
     MAX_IMPACT_WARNINGS: int = int(os.getenv("MAX_IMPACT_WARNINGS", "10"))
 

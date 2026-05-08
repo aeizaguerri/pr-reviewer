@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 
 import src.core.config as cfg_module
-from src.reviewer.tools import fetch_pr_data
+from src.reviewer.tools import TRUNCATION_MARKER, fetch_pr_data
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +24,13 @@ def _make_mock_pr(patch_text: str, title: str = "Test PR", sha: str = "deadbeef"
     mock_pr.title = title
     mock_pr.get_files.return_value = [mock_file]
     return mock_pr
+
+
+def _make_mock_file(filename: str, patch_text: str):
+    mock_file = MagicMock()
+    mock_file.filename = filename
+    mock_file.patch = patch_text
+    return mock_file
 
 
 # ---------------------------------------------------------------------------
@@ -50,21 +57,26 @@ class TestDiffTruncation:
 
     @patch("src.reviewer.tools.Github")
     def test_long_diff_is_truncated(self, mock_github_cls, monkeypatch):
-        """SC-L5-2: A diff exceeding MAX_DIFF_CHARS is cut and ends with [TRUNCATED]."""
-        limit = 500
+        """SC-L5-2: A diff exceeding MAX_DIFF_CHARS truncates at file boundary."""
+        first_part = "### src/a.py\n" + ("a" * 40)
+        second_part = "### src/b.py\n" + ("b" * 200)
+        limit = len(first_part) + len(TRUNCATION_MARKER)
         monkeypatch.setattr(cfg_module.Config, "MAX_DIFF_CHARS", limit)
 
-        patch_text = "y" * 10_000
-        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = (
-            _make_mock_pr(patch_text)
-        )
+        mock_pr = MagicMock()
+        mock_pr.head.sha = "deadbeef"
+        mock_pr.title = "Test PR"
+        mock_pr.get_files.return_value = [
+            _make_mock_file("src/a.py", "a" * 40),
+            _make_mock_file("src/b.py", "b" * 200),
+        ]
+        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = mock_pr
 
         diff_text, _, _ = fetch_pr_data("owner", "repo", 1, github_token="tok")
 
-        assert diff_text.endswith("[TRUNCATED — diff exceeded size limit]")
-        # Content up to the limit + marker — must not exceed limit + marker length
-        marker = "\n\n[TRUNCATED — diff exceeded size limit]"
-        assert len(diff_text) == limit + len(marker)
+        assert diff_text == first_part + TRUNCATION_MARKER
+        assert "src/b.py" not in diff_text
+        assert len(diff_text) == limit
 
     @patch("src.reviewer.tools.Github")
     def test_truncation_emits_warning(self, mock_github_cls, monkeypatch, caplog):
@@ -100,9 +112,8 @@ class TestDiffTruncation:
 
         diff_text, _, _ = fetch_pr_data("owner", "repo", 1, github_token="tok")
 
-        marker = "\n\n[TRUNCATED — diff exceeded size limit]"
-        assert len(diff_text) == custom_limit + len(marker)
-        assert diff_text.endswith("[TRUNCATED — diff exceeded size limit]")
+        assert len(diff_text) <= custom_limit
+        assert diff_text == TRUNCATION_MARKER
 
     @patch("src.reviewer.tools.Github")
     def test_diff_exactly_at_limit_is_not_truncated(self, mock_github_cls, monkeypatch):
