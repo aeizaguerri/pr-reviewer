@@ -28,7 +28,7 @@ target-version = "py313"
 line-length = 100
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["backend/tests", "src/core/tests", "src/knowledge/tests", "src/reviewer/tests"]
 markers = [
     "integration: marks tests that require a running Neo4j instance (skip by default with -m 'not integration')",
 ]
