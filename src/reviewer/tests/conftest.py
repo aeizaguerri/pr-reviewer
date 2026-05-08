@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the PR Code Reviewer test suite."""
+"""Shared pytest fixtures for the reviewer test suite."""
 
 from pathlib import Path
 
@@ -89,7 +89,7 @@ def empty_impact_result() -> ImpactResult:
 @pytest.fixture
 def topology_yaml_path() -> Path:
     """Returns the path to examples/topology.yaml (real file, no Neo4j needed)."""
-    base = Path(__file__).parent.parent
+    base = Path(__file__).parent.parent.parent.parent
     return base / "examples" / "topology.yaml"
 
 
