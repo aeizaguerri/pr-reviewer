@@ -2,4 +2,8 @@
 name = "pr-reviewer-frontend"
 version = "0.1.0"
 requires-python = ">=3.14"
-dependencies = ["streamlit>=1.45.0", "httpx>=0.28.0"]
+dependencies = [
+    "streamlit>=1.45.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.2.2",
+]
