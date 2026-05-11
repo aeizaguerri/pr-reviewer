@@ -19,6 +19,7 @@ entregas/
 
 # Claude
 .claude/
+.pi/
 
 # Streamlit secrets (never commit keys)
 .streamlit/secrets.toml
