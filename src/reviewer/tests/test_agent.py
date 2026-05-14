@@ -1,6 +1,6 @@
 """Unit tests: agent prompt, sanitization, and parse-failure behavior."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -222,22 +222,38 @@ class TestParseFailureImpactWarnings:
         monkeypatch.setattr("src.core.config.Config.ENABLE_GRAPH_ENRICHMENT", True)
 
         with (
-            patch("src.reviewer.agent.fetch_pr_data", return_value=("### src/contracts/order.py\npatch", "sha", "PR")),
-            patch("src.reviewer.agent._build_agent") as mock_build_agent,
-            patch("src.reviewer.agent.post_review_comments"),
+            patch(
+                "src.reviewer.orchestrator.fetch_pr_data",
+                return_value=("### src/contracts/order.py\npatch", "sha", "PR"),
+            ),
+            patch("src.reviewer.orchestrator._run_bug_reviewers") as mock_bug,
+            patch("src.reviewer.orchestrator._run_security_reviewer") as mock_sec,
+            patch("src.reviewer.orchestrator._run_cross_repo_reviewer") as mock_cross,
+            patch("src.reviewer.orchestrator.post_review_comments"),
             patch("src.knowledge.client.check_health", return_value=True),
             patch("src.knowledge.client.get_driver", return_value=object()),
             patch("src.knowledge.queries.find_consumers_of_paths", return_value=impact_result),
             patch("src.reviewer.agent._log_full_llm_response"),
         ):
-            mock_run = MagicMock()
-            mock_run.content = "not json"
-            mock_build_agent.return_value.run = MagicMock(return_value=mock_run)
+            from src.reviewer.models import (
+                SpecialistBugOutput,
+                SpecialistSecurityOutput,
+                SpecialistImpactOutput,
+            )
+
+            mock_bug.return_value = (
+                SpecialistBugOutput(bugs=[], raw_content="not json"),
+                SpecialistBugOutput(bugs=[], raw_content="not json"),
+            )
+            mock_sec.return_value = SpecialistSecurityOutput(bugs=[], raw_content="not json")
+            mock_cross.return_value = SpecialistImpactOutput(
+                impact_warnings=[], raw_content="not json"
+            )
 
             from src.reviewer.agent import review_pr
 
             result = review_pr("owner", "repo", 1)
 
-        assert result.approved is False
-        assert result.summary == "Error: Agent failed to produce valid output."
+        # With multi-agent architecture, parse failures in specialists are handled
+        # gracefully (empty output) rather than failing the whole review.
         assert result.impact_warnings == [warning]

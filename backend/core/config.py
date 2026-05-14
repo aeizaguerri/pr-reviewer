@@ -41,6 +41,11 @@ class BackendConfig:
             if not cls.NEO4J_URI:
                 raise ValueError("NEO4J_URI is required when ENABLE_GRAPH_ENRICHMENT is true")
 
+    # Specialist reviewer timeout
+    REVIEW_SPECIALIST_TIMEOUT_SECONDS: int = int(
+        os.getenv("REVIEW_SPECIALIST_TIMEOUT_SECONDS", "120")
+    )
+
     # Knowledge Graph
     ENABLE_GRAPH_ENRICHMENT: bool = os.getenv("ENABLE_GRAPH_ENRICHMENT", "false").lower() == "true"
     GRAPH_QUERY_TIMEOUT: int = int(os.getenv("GRAPH_QUERY_TIMEOUT", "5"))

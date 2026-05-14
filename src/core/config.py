@@ -55,6 +55,11 @@ class Config:
         "TRUSTED_AUTHOR_ASSOCIATIONS", "OWNER,MEMBER,COLLABORATOR"
     )
 
+    # Specialist reviewer timeout
+    REVIEW_SPECIALIST_TIMEOUT_SECONDS: int = int(
+        os.getenv("REVIEW_SPECIALIST_TIMEOUT_SECONDS", "120")
+    )
+
     # Opik
     OPIK_API_KEY: str = os.getenv("OPIK_API_KEY", "")
     OPIK_PROJECT_NAME: str = os.getenv("OPIK_PROJECT_NAME", "pr-reviewer")

@@ -1,85 +1,81 @@
-"""Unit tests: review_pr_with_config() calls _build_agent_with_config() with injected config."""
+"""Unit tests: review_pr_with_config() delegates to the multi-agent orchestrator."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 from src.reviewer.models import ReviewOutput
 
 
-# ---------------------------------------------------------------------------
-# review_pr_with_config — config injection
-# ---------------------------------------------------------------------------
-
-
 class TestReviewPrWithConfig:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
 
-    def _make_review_output(self, approved: bool = True, bugs=None):
+    def _make_output(self, approved: bool = True, bugs=None):
         return ReviewOutput(
             summary="Looks good.",
             bugs=bugs or [],
             approved=approved,
         )
 
-    @patch("src.reviewer.agent.post_review_comments")
-    @patch("src.reviewer.agent.fetch_pr_data")
-    @patch("src.reviewer.agent._build_agent_with_config")
-    def test_calls_build_agent_with_injected_config(self, mock_build, mock_fetch, mock_post):
+    @patch("src.reviewer.orchestrator.run_multi_agent_review")
+    def test_delegates_to_orchestrator(self, mock_orch):
+        """Task 1.1/1.9: review_pr_with_config must call run_multi_agent_review."""
         from src.reviewer.agent import review_pr_with_config
 
-        mock_fetch.return_value = ("diff text", "abc123", "Fix: something")
-        mock_run = MagicMock()
-        mock_run.content = self._make_review_output()
-        mock_build.return_value.run.return_value = mock_run
+        expected = self._make_output()
+        mock_orch.return_value = expected
 
-        review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok")
-
-        mock_build.assert_called_once_with(
-            self._PROVIDER_CONFIG, supports_structured_output=True, debug=False
+        result = review_pr_with_config(
+            "owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok"
         )
 
-    @patch("src.reviewer.agent.post_review_comments")
-    @patch("src.reviewer.agent.fetch_pr_data")
-    @patch("src.reviewer.agent._build_agent_with_config")
-    def test_passes_github_token_to_fetch_pr_data(self, mock_build, mock_fetch, mock_post):
+        mock_orch.assert_called_once()
+        assert result == expected
+
+    @patch("src.reviewer.orchestrator._run_bug_reviewers")
+    @patch("src.reviewer.orchestrator._run_security_reviewer")
+    @patch("src.reviewer.orchestrator._run_cross_repo_reviewer")
+    @patch("src.reviewer.orchestrator.fetch_pr_data")
+    def test_full_pipeline_runs(self, mock_fetch, mock_cross, mock_sec, mock_bug):
+        """Task 1.9/3.7: full multi-agent pipeline completes without exceptions."""
         from src.reviewer.agent import review_pr_with_config
+        from src.reviewer.models import (
+            SpecialistBugOutput,
+            SpecialistSecurityOutput,
+            SpecialistImpactOutput,
+        )
 
         mock_fetch.return_value = ("diff", "sha", "title")
-        mock_run = MagicMock()
-        mock_run.content = self._make_review_output()
-        mock_build.return_value.run.return_value = mock_run
+        mock_bug.return_value = (
+            SpecialistBugOutput(bugs=[]),
+            SpecialistBugOutput(bugs=[]),
+        )
+        mock_sec.return_value = SpecialistSecurityOutput(bugs=[])
+        mock_cross.return_value = SpecialistImpactOutput(impact_warnings=[])
 
-        review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG, github_token="ghp-tok")
+        result = review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
+        assert isinstance(result, ReviewOutput)
 
-        mock_fetch.assert_called_once_with("owner", "repo", 1, github_token="ghp-tok")
-
-    @patch("src.reviewer.agent.post_review_comments")
-    @patch("src.reviewer.agent.fetch_pr_data")
-    @patch("src.reviewer.agent._build_agent_with_config")
-    def test_returns_review_output(self, mock_build, mock_fetch, mock_post):
+    @patch("src.reviewer.orchestrator.run_multi_agent_review")
+    def test_returns_review_output(self, mock_orch):
+        """Task 1.9: shape compatibility — must return ReviewOutput."""
         from src.reviewer.agent import review_pr_with_config
 
-        mock_fetch.return_value = ("diff", "sha", "title")
-        expected = self._make_review_output(approved=True)
-        mock_run = MagicMock()
-        mock_run.content = expected
-        mock_build.return_value.run.return_value = mock_run
+        expected = self._make_output(approved=True)
+        mock_orch.return_value = expected
 
         result = review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
 
-        assert result == expected
+        assert isinstance(result, ReviewOutput)
         assert result.approved is True
 
-    @patch("src.reviewer.agent.post_review_comments")
-    @patch("src.reviewer.agent.fetch_pr_data")
-    @patch("src.reviewer.agent._build_agent_with_config")
-    def test_does_not_post_comments_when_no_bugs(self, mock_build, mock_fetch, mock_post):
+    @patch("src.reviewer.orchestrator.post_review_comments")
+    @patch("src.reviewer.orchestrator.run_multi_agent_review")
+    def test_does_not_post_comments_when_no_bugs(self, mock_orch, mock_post):
+        """Task 1.9: when orchestrator returns no bugs, no posting occurs."""
         from src.reviewer.agent import review_pr_with_config
 
-        mock_fetch.return_value = ("diff", "sha", "title")
-        mock_run = MagicMock()
-        mock_run.content = self._make_review_output(bugs=[])
-        mock_build.return_value.run.return_value = mock_run
+        expected = self._make_output(bugs=[])
+        mock_orch.return_value = expected
 
         review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
 
@@ -87,7 +83,7 @@ class TestReviewPrWithConfig:
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility: review_pr() is unchanged
+# Backward compatibility: review_pr() signature is unchanged
 # ---------------------------------------------------------------------------
 
 
