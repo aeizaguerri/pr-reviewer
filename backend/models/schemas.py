@@ -18,11 +18,23 @@ class BugReportResponse(BaseModel):
     severity: str
     description: str
     suggestion: str
+    category: str = "bug"
+    source: str = ""
 
 
 class ImpactWarningResponse(BaseModel):
     severity: str
     description: str
+    changed_file: str = ""
+    changed_entity: str = ""
+    affected_service: str = ""
+    affected_repository: str = ""
+    relationship_type: str = ""
+
+
+class ReviewHealthResponse(BaseModel):
+    status: str = "complete"
+    warnings: list[str] = []
 
 
 class ReviewResponse(BaseModel):
@@ -30,6 +42,7 @@ class ReviewResponse(BaseModel):
     approved: bool
     bugs: list[BugReportResponse]
     impact_warnings: list[ImpactWarningResponse]
+    review_health: ReviewHealthResponse | None = None
 
 
 class ProviderInfo(BaseModel):

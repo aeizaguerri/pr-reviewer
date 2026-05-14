@@ -14,6 +14,15 @@ class BugReport(BaseModel):
     )
     description: str = Field(..., description="Clear description of the bug found")
     suggestion: str = Field(..., description="Concrete suggestion to fix the bug")
+    category: Literal["bug", "security"] = Field(default="bug", description="Finding category: bug or security")
+    source: str = Field(default="", description="Source identifier of the specialist that produced this finding")
+
+
+class ReviewHealth(BaseModel):
+    status: Literal["complete", "partial", "degraded"] = Field(
+        default="complete", description="Review health status indicating completeness"
+    )
+    warnings: list[str] = Field(default_factory=list, description="Human-readable warnings about review quality")
 
 
 class ReviewOutput(BaseModel):
@@ -26,6 +35,7 @@ class ReviewOutput(BaseModel):
         default_factory=list,
         description="Cross-repo impact warnings from knowledge graph (not produced by LLM)",
     )
+    review_health: ReviewHealth | None = Field(default=None, description="Optional review health metadata")
 
 
 # ---------------------------------------------------------------------------

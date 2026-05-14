@@ -577,3 +577,54 @@ class TestFanOut:
         assert len(svc_a) == 1
         assert svc_a[0].severity == "high"
         assert len(svc_b) == 1
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator._run_bug_reviewers")
+    @patch("src.reviewer.orchestrator._run_security_reviewer")
+    @patch("src.reviewer.orchestrator._run_cross_repo_reviewer")
+    async def test_orchestrator_builds_degraded_health_on_specialist_failure(self, mock_cross, mock_sec, mock_bug):
+        """2.5: specialist failures produce degraded review health."""
+        from src.reviewer.orchestrator import arun_multi_agent_review
+
+        mock_bug.side_effect = RuntimeError("bug team exploded")
+        mock_sec.return_value = SpecialistSecurityOutput(bugs=[])
+        mock_cross.return_value = SpecialistImpactOutput(impact_warnings=[])
+
+        with patch(
+            "src.reviewer.orchestrator.fetch_pr_data", return_value=("diff", "sha", "title")
+        ):
+            with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
+                mock_ctx.return_value = self._make_context()
+                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+
+        assert isinstance(result, ReviewOutput)
+        assert result.review_health is not None
+        assert result.review_health.status == "degraded"
+        assert any("bug" in w.lower() for w in result.review_health.warnings)
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator._run_bug_reviewers")
+    @patch("src.reviewer.orchestrator._run_security_reviewer")
+    @patch("src.reviewer.orchestrator._run_cross_repo_reviewer")
+    async def test_orchestrator_builds_partial_health_on_specialist_skip(self, mock_cross, mock_sec, mock_bug):
+        """2.6: cross-repo skipped (no graph evidence) produces partial health."""
+        from src.reviewer.orchestrator import arun_multi_agent_review
+
+        mock_bug.return_value = (
+            SpecialistBugOutput(bugs=[]),
+            SpecialistBugOutput(bugs=[]),
+        )
+        mock_sec.return_value = SpecialistSecurityOutput(bugs=[])
+        mock_cross.return_value = SpecialistImpactOutput(impact_warnings=[], raw_content="")
+
+        with patch(
+            "src.reviewer.orchestrator.fetch_pr_data", return_value=("diff", "sha", "title")
+        ):
+            with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
+                mock_ctx.return_value = self._make_context()
+                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+
+        assert isinstance(result, ReviewOutput)
+        assert result.review_health is not None
+        assert result.review_health.status == "partial"
+        assert any("cross-repo" in w.lower() for w in result.review_health.warnings)

@@ -23,7 +23,7 @@ testing:
   runner: pytest
   command: "uv run pytest"
   strict_tdd: true
-  collected_tests: 269
+  collected_tests: 289
   markers:
     - "integration: requires a running Neo4j instance (skip by default with -m 'not integration')"
   testpaths:

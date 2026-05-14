@@ -17,6 +17,8 @@ from streamlit import column_config
 
 from src.core.logging_config import configure_logging
 
+from frontend.render_helpers import build_review_display
+
 configure_logging()
 
 # ---------------------------------------------------------------------------
@@ -663,41 +665,39 @@ if review_button:
         st.markdown("---")
         st.subheader("Review Results")
 
+        display = build_review_display(result)
+
         # Approval badge via st.metric
-        approved = result.get("approved", False)
-        approval_label = "✅ Approved" if approved else "❌ Changes Requested"
-        approval_delta = "Ready to merge" if approved else "Requires changes"
-        st.metric(label="Decision", value=approval_label, delta=approval_delta)
+        st.metric(
+            label="Decision",
+            value=display["approval_label"],
+            delta=display["approval_delta"],
+        )
+
+        # Review Health — always show when present; list warnings only if any
+        if display["health"]:
+            st.markdown("### Review Health")
+            health_emoji = {
+                "complete": "🟢",
+                "partial": "🟡",
+                "degraded": "🔴",
+            }
+            status_label = f"{health_emoji.get(display['health']['status'], '')} {display['health']['status'].title()}"
+            st.info(f"**Status:** {status_label}")
+            if display["health"]["warnings"]:
+                for warning in display["health"]["warnings"]:
+                    st.caption(f"- {warning}")
 
         # Summary
         st.markdown("### Summary")
-        st.markdown(result.get("summary", ""))
+        st.markdown(display["summary"])
 
-        # Bug table or success message
-        bugs = result.get("bugs", [])
-        if not bugs:
-            st.success("🎉 No bugs found — PR looks clean!")
-        else:
-            st.markdown(f"### Bugs Found ({len(bugs)})")
-
-            # Build rows with severity color prefix for display
-            _SEVERITY_EMOJI = {"critical": "🔴", "major": "🟠", "minor": "🟡"}
-
-            bug_rows = [
-                {
-                    "Severity": f"{_SEVERITY_EMOJI.get(bug['severity'], '')} {bug['severity']}",
-                    "File": bug["file"],
-                    "Line": bug["line"],
-                    "Description": bug["description"],
-                    "Suggestion": bug["suggestion"],
-                }
-                for bug in bugs
-            ]
-
-            # Use a scrollable container for the table
+        # Bugs section
+        if display["bug_rows"]:
+            st.markdown(f"### 🐛 Bugs ({len(display['bug_rows'])})")
             with st.container():
                 st.dataframe(
-                    bug_rows,
+                    display["bug_rows"],
                     use_container_width=True,
                     hide_index=True,
                     height=400,
@@ -710,9 +710,34 @@ if review_button:
                     },
                 )
 
+        # Security section
+        if display["security_rows"]:
+            st.markdown(f"### 🔒 Security ({len(display['security_rows'])})")
+            with st.container():
+                st.dataframe(
+                    display["security_rows"],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400,
+                    column_config={
+                        "Severity": column_config.TextColumn(width="small"),
+                        "File": column_config.TextColumn(width="medium"),
+                        "Line": column_config.NumberColumn(width="small"),
+                        "Description": column_config.TextColumn(width="large"),
+                        "Suggestion": column_config.TextColumn(width="large"),
+                    },
+                )
+
+        if not display["bug_rows"] and not display["security_rows"]:
+            st.success("🎉 No bugs found — PR looks clean!")
+
         # Impact warnings (from knowledge graph, optional)
-        impact_warnings = result.get("impact_warnings", [])
-        if impact_warnings:
-            st.markdown("### ⚠️ Impact Warnings")
-            for warning in impact_warnings:
-                st.warning(warning["description"])
+        if display["impact_warnings"]:
+            st.markdown("### ⚠️ Cross-repo Impact")
+            for warning in display["impact_warnings"]:
+                st.warning(
+                    f"**{warning.get('severity', '').upper()}** — {warning.get('description', '')}  \n"
+                    f"_File:_ `{warning.get('changed_file', '')}` | "
+                    f"_Service:_ `{warning.get('affected_service', '')}` | "
+                    f"_Repo:_ `{warning.get('affected_repository', '')}`"
+                )

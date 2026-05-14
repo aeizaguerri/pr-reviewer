@@ -216,3 +216,89 @@ class TestSynthesizer:
         assert "sql injection vulnerability" in bug.description
         assert "fix logic" in bug.suggestion
         assert "use parameterized queries" in bug.suggestion
+
+    def test_synthesize_tags_code_defects_as_bug(self):
+        """2.1: judged code defects are tagged category='bug' and source='bug-reviewer-team'."""
+        from src.reviewer.orchestrator import _synthesize
+
+        judged = [
+            BugReport(
+                file="src/a.py",
+                line=10,
+                severity="major",
+                description="logic error",
+                suggestion="fix it",
+            ).model_dump()
+        ]
+        ctx = self._make_context()
+        result = _synthesize(judged, [], [], ctx)
+        assert len(result.bugs) == 1
+        assert result.bugs[0].category == "bug"
+        assert result.bugs[0].source == "bug-reviewer-team"
+
+    def test_synthesize_preserves_explicit_source_on_judged_bugs(self):
+        """Judged bugs with explicit source keep their source."""
+        from src.reviewer.orchestrator import _synthesize
+
+        judged = [
+            BugReport(
+                file="src/a.py",
+                line=10,
+                severity="major",
+                description="logic error",
+                suggestion="fix it",
+                source="custom-source",
+            ).model_dump()
+        ]
+        ctx = self._make_context()
+        result = _synthesize(judged, [], [], ctx)
+        assert len(result.bugs) == 1
+        assert result.bugs[0].source == "custom-source"
+
+    def test_synthesize_tags_security_findings_as_security(self):
+        """2.2: security findings are tagged category='security'."""
+        from src.reviewer.orchestrator import _synthesize
+
+        security = [
+            BugReport(
+                file="src/a.py",
+                line=10,
+                severity="critical",
+                description="sql injection",
+                suggestion="parametrize",
+            )
+        ]
+        ctx = self._make_context()
+        result = _synthesize([], security, [], ctx)
+        assert len(result.bugs) == 1
+        assert result.bugs[0].category == "security"
+
+    def test_synthesize_preserves_explicit_category_on_merge(self):
+        """2.3: when judged bug and security bug merge, category='security' wins."""
+        from src.reviewer.orchestrator import _synthesize
+
+        judged = [
+            BugReport(
+                file="src/api.py",
+                line=42,
+                severity="major",
+                description="logic error",
+                suggestion="fix logic",
+            ).model_dump()
+        ]
+        security = [
+            BugReport(
+                file="src/api.py",
+                line=42,
+                severity="critical",
+                description="injection",
+                suggestion="sanitize",
+                category="security",
+                source="security-reviewer",
+            )
+        ]
+        ctx = self._make_context()
+        result = _synthesize(judged, security, [], ctx)
+        assert len(result.bugs) == 1
+        assert result.bugs[0].category == "security"
+        assert result.bugs[0].source == "security-reviewer"

@@ -29,6 +29,7 @@ from src.reviewer.agent import (
 from src.reviewer.models import (
     BugReport,
     ReviewContext,
+    ReviewHealth,
     ReviewOutput,
     SpecialistBugOutput,
     SpecialistFailure,
@@ -440,6 +441,17 @@ def _merge_bug_dicts(existing: dict, incoming: dict) -> None:
             else:
                 existing[field] = incoming_val
 
+    # Preserve security category over bug; keep first non-empty source
+    incoming_category = incoming.get("category", "bug")
+    if incoming_category == "security" or existing.get("category", "bug") == "security":
+        existing["category"] = "security"
+    existing_source = existing.get("source", "")
+    incoming_source = incoming.get("source", "")
+    if incoming_source and not existing_source:
+        existing["source"] = incoming_source
+    elif incoming_category == "security" and incoming_source:
+        existing["source"] = incoming_source
+
 
 def _synthesize(
     judged_bugs: list[dict],
@@ -453,6 +465,9 @@ def _synthesize(
     merged: dict[tuple[str, int], dict] = {}
     for bug_dict in judged_bugs:
         key = (bug_dict["file"], bug_dict["line"])
+        bug_dict.setdefault("category", "bug")
+        if not bug_dict.get("source"):
+            bug_dict["source"] = "bug-reviewer-team"
         if key not in merged:
             merged[key] = dict(bug_dict)
         else:
@@ -461,6 +476,8 @@ def _synthesize(
     for bug in security_bugs:
         key = (bug.file, bug.line)
         bug_dict = bug.model_dump(mode="json")
+        bug_dict["category"] = "security"
+        bug_dict["source"] = bug_dict.get("source") or "security-reviewer"
         if key not in merged:
             merged[key] = bug_dict
         else:
@@ -497,6 +514,40 @@ def _synthesize(
         approved=approved,
         impact_warnings=impact_warnings,
     )
+
+
+def _build_review_health(
+    bug_failed: bool,
+    bug_no_valid_output: bool,
+    security_failed: bool,
+    cross_repo_failed: bool,
+    cross_repo_skipped: bool,
+) -> ReviewHealth:
+    """Build review health from specialist execution outcomes."""
+    warnings: list[str] = []
+
+    if bug_failed:
+        warnings.append("Bug reviewers failed or timed out.")
+    elif bug_no_valid_output:
+        warnings.append("Bug reviewers produced no valid output.")
+
+    if security_failed:
+        warnings.append("Security reviewer failed or timed out.")
+
+    if cross_repo_failed:
+        warnings.append("Cross-repo impact reviewer failed or timed out.")
+    elif cross_repo_skipped:
+        warnings.append("Cross-repo impact reviewer skipped (no graph evidence).")
+
+    # For health classification, parse failures count as degraded; empty but valid output does not
+    has_parse_failure = bug_failed or security_failed or cross_repo_failed
+    has_skip = cross_repo_skipped and not has_parse_failure
+
+    if has_parse_failure:
+        return ReviewHealth(status="degraded", warnings=warnings)
+    if has_skip:
+        return ReviewHealth(status="partial", warnings=warnings)
+    return ReviewHealth(status="complete", warnings=warnings)
 
 
 def _merge_impact_warnings(
@@ -622,6 +673,14 @@ async def arun_multi_agent_review(
         and cross_repo_result.raw_content == ""
     )
 
+    review_health = _build_review_health(
+        bug_failed=bug_failed,
+        bug_no_valid_output=bug_no_valid_output,
+        security_failed=security_failed,
+        cross_repo_failed=cross_repo_failed,
+        cross_repo_skipped=cross_repo_skipped,
+    )
+
     # If every specialist failed or produced no valid output, degrade instead of misrepresenting as clean
     all_specialists_failed = (
         (bug_failed or bug_no_valid_output)
@@ -632,21 +691,29 @@ async def arun_multi_agent_review(
         logger.warning(
             "All specialists failed or produced no valid output; returning degraded ReviewOutput"
         )
-        return _parse_failure_result(ctx.impact_result)
+        degraded = _parse_failure_result(ctx.impact_result)
+        degraded.review_health = review_health
+        return degraded
 
     # Step 4: judge/deduper (failure degrades to _parse_failure_result)
     try:
         judged_bugs: list[dict] = _run_judge(bug_a, bug_b, ctx)
     except Exception as exc:
         logger.warning("Judge failed: %s", exc)
-        return _parse_failure_result(ctx.impact_result)
+        degraded = _parse_failure_result(ctx.impact_result)
+        degraded.review_health = review_health
+        return degraded
 
     # Step 5: synthesizer (failure degrades to _parse_failure_result)
     try:
         result = _synthesize(judged_bugs, security_bugs, impact_warnings, ctx)
     except Exception as exc:
         logger.warning("Synthesizer failed: %s", exc)
-        return _parse_failure_result(ctx.impact_result)
+        degraded = _parse_failure_result(ctx.impact_result)
+        degraded.review_health = review_health
+        return degraded
+
+    result.review_health = review_health
 
     # Step 6: exactly-once posting
     if result.bugs:

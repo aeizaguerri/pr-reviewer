@@ -5,6 +5,7 @@ from backend.core.providers import SUPPORTS_STRUCTURED_OUTPUT, build_provider_co
 from backend.models.schemas import (
     BugReportResponse,
     ImpactWarningResponse,
+    ReviewHealthResponse,
     ReviewRequest,
     ReviewResponse,
 )
@@ -15,6 +16,11 @@ def _map_impact_warning(w) -> ImpactWarningResponse:
     return ImpactWarningResponse(
         severity=w.severity,
         description=w.description,
+        changed_file=getattr(w, "changed_file", ""),
+        changed_entity=getattr(w, "changed_entity", ""),
+        affected_service=getattr(w, "affected_service", ""),
+        affected_repository=getattr(w, "affected_repository", ""),
+        relationship_type=getattr(w, "relationship_type", ""),
     )
 
 
@@ -55,15 +61,25 @@ def run_review(req: ReviewRequest, api_key: str = "", github_token: str = "") ->
             severity=bug.severity,
             description=bug.description,
             suggestion=bug.suggestion,
+            category=getattr(bug, "category", "bug"),
+            source=getattr(bug, "source", ""),
         )
         for bug in result.bugs
     ]
 
     impact_warnings = [_map_impact_warning(w) for w in (result.impact_warnings or [])]
 
+    review_health = None
+    if result.review_health is not None:
+        review_health = ReviewHealthResponse(
+            status=result.review_health.status,
+            warnings=result.review_health.warnings,
+        )
+
     return ReviewResponse(
         summary=result.summary,
         approved=result.approved,
         bugs=bugs,
         impact_warnings=impact_warnings,
+        review_health=review_health,
     )

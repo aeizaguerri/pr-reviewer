@@ -31,6 +31,7 @@ MOCK_REVIEW_RESPONSE = ReviewResponse(
     approved=True,
     bugs=[],
     impact_warnings=[],
+    review_health=None,
 )
 
 
@@ -156,3 +157,126 @@ class TestLegacyBodyFields:
         assert response.status_code == 200, (
             f"Expected 200 even with legacy body fields, got {response.status_code}: {response.text}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 3.1 — BugReportResponse includes category and source
+# ---------------------------------------------------------------------------
+
+
+class TestBugReportSchema:
+    @patch("backend.api.v1.routes.run_review")
+    def test_bug_report_response_has_category_and_source(self, mock_run, client):
+        from backend.models.schemas import BugReportResponse
+
+        mock_run.return_value = ReviewResponse(
+            summary="test",
+            approved=False,
+            bugs=[
+                BugReportResponse(
+                    file="src/a.py",
+                    line=10,
+                    severity="major",
+                    description="bug",
+                    suggestion="fix",
+                    category="security",
+                    source="security-reviewer",
+                )
+            ],
+            impact_warnings=[],
+            review_health=None,
+        )
+        response = client.post(
+            REVIEW_URL,
+            json=VALID_BODY,
+            headers={
+                "Authorization": "Bearer testkey",
+                "X-GitHub-Token": "ghtoken",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["bugs"]) == 1
+        assert data["bugs"][0]["category"] == "security"
+        assert data["bugs"][0]["source"] == "security-reviewer"
+
+
+# ---------------------------------------------------------------------------
+# 3.3 — ImpactWarningResponse includes full structured fields
+# ---------------------------------------------------------------------------
+
+
+class TestImpactWarningSchema:
+    @patch("backend.api.v1.routes.run_review")
+    def test_impact_warning_response_has_full_fields(self, mock_run, client):
+        from backend.models.schemas import ImpactWarningResponse
+
+        mock_run.return_value = ReviewResponse(
+            summary="test",
+            approved=False,
+            bugs=[],
+            impact_warnings=[
+                ImpactWarningResponse(
+                    severity="high",
+                    description="breaks downstream",
+                    changed_file="src/a.py",
+                    changed_entity="OrderCreated",
+                    affected_service="payment-worker",
+                    affected_repository="payment-service",
+                    relationship_type="CONSUMES",
+                )
+            ],
+            review_health=None,
+        )
+        response = client.post(
+            REVIEW_URL,
+            json=VALID_BODY,
+            headers={
+                "Authorization": "Bearer testkey",
+                "X-GitHub-Token": "ghtoken",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["impact_warnings"]) == 1
+        warning = data["impact_warnings"][0]
+        assert warning["changed_file"] == "src/a.py"
+        assert warning["changed_entity"] == "OrderCreated"
+        assert warning["affected_service"] == "payment-worker"
+        assert warning["affected_repository"] == "payment-service"
+        assert warning["relationship_type"] == "CONSUMES"
+
+
+# ---------------------------------------------------------------------------
+# 3.5 — ReviewHealthResponse optional and serialized
+# ---------------------------------------------------------------------------
+
+
+class TestReviewHealthSchema:
+    @patch("backend.api.v1.routes.run_review")
+    def test_review_health_response_optional_and_serialized(self, mock_run, client):
+        from backend.models.schemas import ReviewHealthResponse
+
+        mock_run.return_value = ReviewResponse(
+            summary="test",
+            approved=True,
+            bugs=[],
+            impact_warnings=[],
+            review_health=ReviewHealthResponse(
+                status="partial",
+                warnings=["cross-repo impact reviewer skipped (no graph evidence)."],
+            ),
+        )
+        response = client.post(
+            REVIEW_URL,
+            json=VALID_BODY,
+            headers={
+                "Authorization": "Bearer testkey",
+                "X-GitHub-Token": "ghtoken",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["review_health"] is not None
+        assert data["review_health"]["status"] == "partial"
+        assert data["review_health"]["warnings"] == ["cross-repo impact reviewer skipped (no graph evidence)."]
