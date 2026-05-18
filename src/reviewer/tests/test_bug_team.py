@@ -79,6 +79,33 @@ class TestBugReviewers:
         assert shared_prompt in team_call.kwargs["instructions"]
 
     @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator.render_prompt")
+    @patch("src.reviewer.orchestrator.Agent")
+    @patch("src.reviewer.orchestrator.Team")
+    @patch("src.reviewer.orchestrator.OpenAILike")
+    async def test_team_leader_prompt_is_rendered_from_registry(
+        self, mock_openai_like, mock_team_cls, mock_agent_cls, mock_render_prompt
+    ):
+        """Bug team leader instructions use the registry-backed template."""
+        from src.reviewer.orchestrator import _run_bug_reviewers
+
+        shared_prompt = "shared context from build_review_context"
+        ctx = self._make_context(shared_prompt=shared_prompt)
+        mock_render_prompt.return_value = f"LEADER::{shared_prompt}"
+        mock_team = MagicMock()
+        mock_team_cls.return_value = mock_team
+        mock_msg_a = MagicMock(agent_id="bug-reviewer-a", content=json.dumps({"bugs": []}))
+        mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
+        mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
+
+        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+
+        mock_render_prompt.assert_called_once_with(
+            "bug_review_team_leader", shared_prompt=shared_prompt
+        )
+        assert mock_team_cls.call_args.kwargs["instructions"] == f"LEADER::{shared_prompt}"
+
+    @pytest.mark.anyio
     @patch("src.reviewer.orchestrator.Agent")
     @patch("src.reviewer.orchestrator.Team")
     @patch("src.reviewer.orchestrator.OpenAILike")

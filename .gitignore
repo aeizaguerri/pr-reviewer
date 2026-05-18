@@ -37,3 +37,8 @@ uv.lock
 
 # SDD/Agent Teams artifacts
 .atl/
+.pi/
+
+# Local analysis caches
+.pi-lens/
+**/.pi-lens/

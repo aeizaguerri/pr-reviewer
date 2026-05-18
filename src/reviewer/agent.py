@@ -9,7 +9,7 @@ from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
 
 from src.core.config import Config
-from src.core.observability import track_if_enabled
+from src.core.observability import render_prompt, track_if_enabled
 from src.reviewer.models import BugReport, ReviewOutput
 from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
 
@@ -111,13 +111,7 @@ def _sanitize_title(title: str) -> str:
 def _make_prompt(pr_title: str, diff_text: str) -> str:
     clean_title = html.escape(_sanitize_title(pr_title))
     safe_diff = html.escape(diff_text)
-    return (
-        "Below is the pull request to review. Analyse the diff for bugs and produce a ReviewOutput.\n\n"
-        f"<pr_title>{clean_title}</pr_title>\n\n"
-        "<diff_content>\n"
-        f"{safe_diff}\n"
-        "</diff_content>"
-    )
+    return render_prompt("pr_review_prompt", pr_title=clean_title, diff_text=safe_diff)
 
 
 def _bugs_to_comments(bugs: list[BugReport]) -> list[dict]:

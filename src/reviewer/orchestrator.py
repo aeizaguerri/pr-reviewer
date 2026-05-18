@@ -18,6 +18,7 @@ from agno.models.openai.like import OpenAILike
 from agno.team import Team
 
 from src.core.config import Config
+from src.core.observability import render_prompt
 from src.reviewer.agent import (
     _bugs_to_comments,
     _enrich_with_graph,
@@ -189,11 +190,7 @@ async def _run_bug_reviewers(
         output_schema=schema,
     )
 
-    leader_prompt = (
-        "You are the Bug Review Team. Broadcast the following PR context to all reviewers "
-        "and wait for their independent outputs. Do not share reviewer outputs between members.\n\n"
-        f"{ctx.shared_prompt}"
-    )
+    leader_prompt = render_prompt("bug_review_team_leader", shared_prompt=ctx.shared_prompt)
     team = Team(
         id="bug-review-team",
         mode="broadcast",
@@ -625,9 +622,8 @@ async def arun_multi_agent_review(
     else:
         bug_a, bug_b = bug_result
 
-    bug_no_valid_output = (
-        (bug_a.parse_failed or not bug_a.raw_content)
-        and (bug_b.parse_failed or not bug_b.raw_content)
+    bug_no_valid_output = (bug_a.parse_failed or not bug_a.raw_content) and (
+        bug_b.parse_failed or not bug_b.raw_content
     )
 
     # Normalize Security result

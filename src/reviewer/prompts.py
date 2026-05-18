@@ -1,14 +1,13 @@
 """Prompt constants and helpers for the PR code reviewer."""
 
 from src.knowledge.models import ImpactResult
-from src.core.observability import get_reviewer_prompt
+from src.core.observability import get_prompt, get_reviewer_prompt
 
 # Type annotations for static analysis — values are loaded lazily via __getattr__.
 REVIEWER_INSTRUCTIONS: str
 BUG_REVIEWER_INSTRUCTIONS: str
 SECURITY_REVIEWER_INSTRUCTIONS: str
 CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS: str
-JUDGE_INSTRUCTIONS: str
 
 
 def __getattr__(name: str) -> str:
@@ -17,47 +16,14 @@ def __getattr__(name: str) -> str:
         globals()["REVIEWER_INSTRUCTIONS"] = value
         return value
 
-    if name == "BUG_REVIEWER_INSTRUCTIONS":
-        value = (
-            "You are a code defect reviewer. Your job is to find bugs in the provided diff. "
-            "Focus on correctness, logic errors, type mismatches, null-pointer risks, "
-            "off-by-one errors, and regressions. "
-            "Do NOT report security vulnerabilities or cross-repository impact. "
-            "Output a JSON object matching the SpecialistBugOutput schema."
-        )
-        globals()["BUG_REVIEWER_INSTRUCTIONS"] = value
-        return value
-
-    if name == "SECURITY_REVIEWER_INSTRUCTIONS":
-        value = (
-            "You are a security reviewer. Your job is to identify CWE-style vulnerabilities "
-            "such as injection, broken authentication, sensitive data exposure, SSRF, "
-            "path traversal, and insecure deserialization. "
-            "Do NOT report general bugs or cross-repository impact. "
-            "Output a JSON object matching the SpecialistSecurityOutput schema."
-        )
-        globals()["SECURITY_REVIEWER_INSTRUCTIONS"] = value
-        return value
-
-    if name == "CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS":
-        value = (
-            "You are a cross-repository impact reviewer. Your job is to assess whether "
-            "the changed files affect downstream services based ONLY on the evidence "
-            "provided in the impact analysis section. "
-            "If no impact evidence is present, return an empty impact_warnings list. "
-            "Do NOT invent impact warnings. "
-            "Output a JSON object matching the SpecialistImpactOutput schema."
-        )
-        globals()["CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS"] = value
-        return value
-
-    if name == "JUDGE_INSTRUCTIONS":
-        value = (
-            "You are a judge. Compare bug findings from Reviewer A and Reviewer B. "
-            "Deduplicate by (file, line, severity, description). Escalate severity on conflict. "
-            "Return a JSON array of deduplicated BugReport-shaped objects."
-        )
-        globals()["JUDGE_INSTRUCTIONS"] = value
+    prompt_names = {
+        "BUG_REVIEWER_INSTRUCTIONS": "bug_reviewer_instructions",
+        "SECURITY_REVIEWER_INSTRUCTIONS": "security_reviewer_instructions",
+        "CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS": "cross_repo_impact_reviewer_instructions",
+    }
+    if name in prompt_names:
+        value = get_prompt(prompt_names[name])
+        globals()[name] = value
         return value
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

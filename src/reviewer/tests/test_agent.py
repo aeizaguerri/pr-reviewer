@@ -109,6 +109,26 @@ class TestMakePrompt:
         result = _make_prompt("Fix login bug", "some diff")
         assert "<diff_content>\nsome diff\n</diff_content>" in result
 
+    def test_prompt_is_rendered_from_registry_template(self, monkeypatch):
+        """pr_review_prompt is the source of the runtime prompt template."""
+        calls = []
+
+        def fake_render_prompt(name: str, **variables: str) -> str:
+            calls.append((name, variables))
+            return f"TEMPLATE::{variables['pr_title']}::{variables['diff_text']}"
+
+        monkeypatch.setattr("src.reviewer.agent.render_prompt", fake_render_prompt)
+
+        result = _make_prompt("Fix <bug>", "x<diff>y")
+
+        assert result == "TEMPLATE::Fix &lt;bug&gt;::x&lt;diff&gt;y"
+        assert calls == [
+            (
+                "pr_review_prompt",
+                {"pr_title": "Fix &lt;bug&gt;", "diff_text": "x&lt;diff&gt;y"},
+            )
+        ]
+
     def test_title_is_wrapped_in_pr_title(self):
         """SC-L3-2: PR title is wrapped in <pr_title> tags."""
         result = _make_prompt("Fix login bug", "some diff")
