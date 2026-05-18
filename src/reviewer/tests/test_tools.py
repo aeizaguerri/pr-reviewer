@@ -45,8 +45,8 @@ class TestDiffTruncation:
         monkeypatch.setattr(cfg_module.Config, "MAX_DIFF_CHARS", 1000)
 
         patch_text = "x" * 500
-        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = (
-            _make_mock_pr(patch_text)
+        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = _make_mock_pr(
+            patch_text
         )
 
         diff_text, _, _ = fetch_pr_data("owner", "repo", 1, github_token="tok")
@@ -59,7 +59,6 @@ class TestDiffTruncation:
     def test_long_diff_is_truncated(self, mock_github_cls, monkeypatch):
         """SC-L5-2: A diff exceeding MAX_DIFF_CHARS truncates at file boundary."""
         first_part = "### src/a.py\n" + ("a" * 40)
-        second_part = "### src/b.py\n" + ("b" * 200)
         limit = len(first_part) + len(TRUNCATION_MARKER)
         monkeypatch.setattr(cfg_module.Config, "MAX_DIFF_CHARS", limit)
 
@@ -85,8 +84,8 @@ class TestDiffTruncation:
         monkeypatch.setattr(cfg_module.Config, "MAX_DIFF_CHARS", limit)
 
         patch_text = "z" * 5_000
-        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = (
-            _make_mock_pr(patch_text)
+        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = _make_mock_pr(
+            patch_text
         )
 
         with caplog.at_level(logging.WARNING, logger="src.reviewer.tools"):
@@ -106,8 +105,8 @@ class TestDiffTruncation:
         monkeypatch.setattr(cfg_module.Config, "MAX_DIFF_CHARS", custom_limit)
 
         patch_text = "a" * 1_000
-        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = (
-            _make_mock_pr(patch_text)
+        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = _make_mock_pr(
+            patch_text
         )
 
         diff_text, _, _ = fetch_pr_data("owner", "repo", 1, github_token="tok")
@@ -124,8 +123,8 @@ class TestDiffTruncation:
         # Build a patch whose assembled diff_text is exactly `limit` chars.
         # "### src/main.py\n" is 16 chars; so patch needs limit - 16 chars.
         patch_text = "b" * (limit - len("### src/main.py\n"))
-        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = (
-            _make_mock_pr(patch_text)
+        mock_github_cls.return_value.get_repo.return_value.get_pull.return_value = _make_mock_pr(
+            patch_text
         )
 
         diff_text, _, _ = fetch_pr_data("owner", "repo", 1, github_token="tok")

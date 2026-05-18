@@ -9,10 +9,9 @@ from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
 
 from src.core.config import Config
-from src.core.observability import track_if_enabled
+from src.core.observability import render_prompt, track_if_enabled
 from src.reviewer.models import BugReport, ReviewOutput
 from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
-from src.reviewer.tools import fetch_pr_data, post_review_comments
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +111,7 @@ def _sanitize_title(title: str) -> str:
 def _make_prompt(pr_title: str, diff_text: str) -> str:
     clean_title = html.escape(_sanitize_title(pr_title))
     safe_diff = html.escape(diff_text)
-    return (
-        "Below is the pull request to review. Analyse the diff for bugs and produce a ReviewOutput.\n\n"
-        f"<pr_title>{clean_title}</pr_title>\n\n"
-        "<diff_content>\n"
-        f"{safe_diff}\n"
-        "</diff_content>"
-    )
+    return render_prompt("pr_review_prompt", pr_title=clean_title, diff_text=safe_diff)
 
 
 def _bugs_to_comments(bugs: list[BugReport]) -> list[dict]:
@@ -213,44 +206,24 @@ def _enrich_with_graph(
 
 @track_if_enabled()
 def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
-    """Run the reviewer on the given pull request (silent mode)."""
-    # Step 1: fetch diff programmatically
-    diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number)
+    """Run the reviewer on the given pull request (silent mode).
 
-    # Step 2: graph enrichment (optional, behind feature toggle)
-    impact_section, impact_result = _enrich_with_graph(diff_text)
-    prompt = impact_section + _make_prompt(pr_title, diff_text)
+    Delegates to the multi-agent orchestrator. The mono-agent inline path has
+    been superseded.
+    """
+    # Local import avoids circular dependency.
+    from src.reviewer.orchestrator import run_multi_agent_review
 
-    # Step 3: run LLM analysis with structured output
-    agent = _build_agent(debug=False)
-    raw = _run_llm(agent, prompt)
+    provider_config = Config.get_model_config()
+    supports_structured = Config.DEFAULT_PROVIDER in ("openai",)
 
-    try:
-        data = json.loads(raw)
-        result = ReviewOutput(**data)
-    except Exception:
-        _log_full_llm_response(raw, owner, repo, pr_number)
-        result = _parse_failure_result(impact_result)
-        return result
-
-    # Step 4: attach impact warnings to result
-    if impact_result is not None:
-        result.impact_warnings = impact_result.warnings
-
-    # Step 5: post inline comments via GitHub API
-    if result.bugs:
-        comments = json.dumps(_bugs_to_comments(result.bugs))
-        gh_result = post_review_comments(
-            owner=owner,
-            repo=repo,
-            pr_number=pr_number,
-            commit_sha=head_sha,
-            comments=comments,
-            summary=result.summary,
-        )
-        logger.info("GitHub review post result: %s", gh_result)
-
-    return result
+    return run_multi_agent_review(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        provider_config=provider_config,
+        supports_structured_output=supports_structured,
+    )
 
 
 @track_if_enabled(capture_input=False)
@@ -264,61 +237,28 @@ def review_pr_with_config(
 ) -> ReviewOutput:
     """Run the reviewer with explicit provider config (no env var reads).
 
-    Use this from the Streamlit UI or any caller that provides credentials
-    directly. The existing review_pr() remains unchanged for CLI/webhook use.
+    Delegates to the multi-agent orchestrator. The mono-agent path has been
+    superseded by the multi-agent review pipeline.
 
     Args:
         owner: Repository owner (user or org).
         repo: Repository name.
         pr_number: Pull request number.
-        provider_config: Tuple of (model_id, base_url, api_key) — matches the
-            shape returned by build_provider_config() and Config.get_model_config().
-        github_token: GitHub personal access token. When omitted, falls back to
-            the GITHUB_ACCESS_TOKEN environment variable.
+        provider_config: Tuple of (model_id, base_url, api_key).
+        github_token: GitHub personal access token.
         supports_structured_output: Whether the provider supports structured outputs.
 
     Returns:
         ReviewOutput with bugs, summary, and approval status.
     """
-    # Step 1: fetch diff
-    diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number, github_token=github_token)
+    # Local import avoids circular dependency: orchestrator imports helpers from agent.
+    from src.reviewer.orchestrator import run_multi_agent_review
 
-    # Step 2: graph enrichment (optional, behind feature toggle — same as review_pr)
-    impact_section, impact_result = _enrich_with_graph(diff_text)
-    prompt = impact_section + _make_prompt(pr_title, diff_text)
-
-    # Step 3: run LLM analysis with injected config
-    agent = _build_agent_with_config(
-        provider_config,
+    return run_multi_agent_review(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        provider_config=provider_config,
+        github_token=github_token,
         supports_structured_output=supports_structured_output,
-        debug=False,
     )
-    raw = _run_llm(agent, prompt)
-
-    try:
-        data = json.loads(raw)
-        result = ReviewOutput(**data)
-    except Exception:
-        _log_full_llm_response(raw, owner, repo, pr_number)
-        result = _parse_failure_result(impact_result)
-        return result
-
-    # Step 4: attach impact warnings
-    if impact_result is not None:
-        result.impact_warnings = impact_result.warnings
-
-    # Step 5: post inline comments via GitHub API
-    if result.bugs:
-        comments = json.dumps(_bugs_to_comments(result.bugs))
-        gh_result = post_review_comments(
-            owner=owner,
-            repo=repo,
-            pr_number=pr_number,
-            commit_sha=head_sha,
-            comments=comments,
-            summary=result.summary,
-            github_token=github_token,
-        )
-        logger.info("GitHub review post result: %s", gh_result)
-
-    return result

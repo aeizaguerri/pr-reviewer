@@ -16,7 +16,7 @@ from backend.core.config import BackendConfig
 from backend.models.schemas import HealthResponse
 from src.core.config import Config
 from src.core.logging_config import configure_logging
-from src.core.observability import configure_opik
+from src.core.observability import ACTIVE_PROMPT_NAMES, configure_opik, warm_prompt_cache
 from src.reviewer.agent import review_pr
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     """
     configure_logging(Config.LOG_LEVEL)
     configure_opik()
+    warm_prompt_cache(ACTIVE_PROMPT_NAMES)
 
     try:
         Config.validate()

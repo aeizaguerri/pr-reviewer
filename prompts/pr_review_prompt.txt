@@ -1,0 +1,7 @@
+Below is the pull request to review. Analyse the diff for bugs and produce a ReviewOutput.
+
+<pr_title>{pr_title}</pr_title>
+
+<diff_content>
+{diff_text}
+</diff_content>

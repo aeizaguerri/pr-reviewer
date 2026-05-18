@@ -17,8 +17,13 @@ from src.core.config import Config
 def reset_observability_state(monkeypatch):
     """Reset module-level state before each test."""
     monkeypatch.setattr(obs_module, "_configured", False)
-    monkeypatch.setattr(obs_module, "_cached_prompt", None)
+    if hasattr(obs_module, "_prompt_cache"):
+        obs_module._prompt_cache.clear()
+    else:
+        monkeypatch.setattr(obs_module, "_cached_prompt", None)
     yield
+    if hasattr(obs_module, "_prompt_cache"):
+        obs_module._prompt_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +282,7 @@ class TestGetReviewerPromptFromOpik:
         with patch.dict("sys.modules", {"opik": mock_opik}):
             obs_module.get_reviewer_prompt()
 
-        assert obs_module._cached_prompt == "Opik prompt text"
+        assert obs_module._prompt_cache["reviewer_instructions"] == "Opik prompt text"
 
 
 # ---------------------------------------------------------------------------
@@ -385,9 +390,158 @@ class TestGetReviewerPromptNoApiKey:
         prompt_file.write_text("File-based prompt text", encoding="utf-8")
 
         obs_module.get_reviewer_prompt()
-        assert obs_module._cached_prompt == "File-based prompt text"
+        assert obs_module._prompt_cache["reviewer_instructions"] == "File-based prompt text"
 
         # Mutate the file — second call must still return the cached value
         prompt_file.write_text("Updated content", encoding="utf-8")
         result = obs_module.get_reviewer_prompt()
         assert result == "File-based prompt text"
+
+
+class TestGenericPromptRegistry:
+    def test_active_prompt_names_are_exactly_multi_agent_prompts(self):
+        assert obs_module.ACTIVE_PROMPT_NAMES == (
+            "bug_reviewer_instructions",
+            "security_reviewer_instructions",
+            "cross_repo_impact_reviewer_instructions",
+            "bug_review_team_leader",
+            "pr_review_prompt",
+        )
+
+    def test_get_prompt_fetches_arbitrary_name_from_opik(self, monkeypatch):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
+        mock_opik = _make_opik_mock()
+        mock_prompt_obj = MagicMock(spec=["format"])
+        mock_prompt_obj.format.return_value = "Bug prompt from Opik"
+        mock_opik.Opik.return_value.get_prompt.return_value = mock_prompt_obj
+
+        with patch.dict("sys.modules", {"opik": mock_opik}):
+            result = obs_module.get_prompt("bug_reviewer_instructions")
+
+        assert result == "Bug prompt from Opik"
+        mock_opik.Opik.return_value.get_prompt.assert_called_once_with(
+            name="bug_reviewer_instructions"
+        )
+
+    def test_get_prompt_caches_raw_opik_template_without_rendering_variables(self, monkeypatch):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
+        mock_opik = _make_opik_mock()
+        mock_prompt_obj = MagicMock()
+        mock_prompt_obj._template = "Title={pr_title}; Diff={diff_text}"
+        mock_prompt_obj.format.side_effect = KeyError("pr_title")
+        mock_opik.Opik.return_value.get_prompt.return_value = mock_prompt_obj
+
+        with patch.dict("sys.modules", {"opik": mock_opik}):
+            result = obs_module.render_prompt(
+                "pr_review_prompt", pr_title="Safe title", diff_text="Safe diff"
+            )
+
+        assert result == "Title=Safe title; Diff=Safe diff"
+        mock_prompt_obj.format.assert_not_called()
+
+    def test_prompt_cache_is_isolated_per_name(self, monkeypatch):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
+        mock_opik = _make_opik_mock()
+
+        def get_prompt(name):
+            prompt_obj = MagicMock()
+            prompt_obj.format.return_value = f"Opik {name}"
+            return prompt_obj
+
+        mock_opik.Opik.return_value.get_prompt.side_effect = get_prompt
+
+        with patch.dict("sys.modules", {"opik": mock_opik}):
+            bug = obs_module.get_prompt("bug_reviewer_instructions")
+            security = obs_module.get_prompt("security_reviewer_instructions")
+            bug_again = obs_module.get_prompt("bug_reviewer_instructions")
+
+        assert bug == "Opik bug_reviewer_instructions"
+        assert security == "Opik security_reviewer_instructions"
+        assert bug_again == bug
+        assert mock_opik.Opik.return_value.get_prompt.call_count == 2
+
+    def test_get_prompt_falls_back_to_matching_file_on_opik_failure(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "secret-token")
+        monkeypatch.setattr(obs_module, "_PROJECT_ROOT", tmp_path)
+        prompt_file = tmp_path / "prompts" / "security_reviewer_instructions.txt"
+        prompt_file.parent.mkdir(parents=True)
+        prompt_file.write_text("Security fallback", encoding="utf-8")
+        mock_opik = _make_opik_mock()
+        mock_opik.Opik.return_value.get_prompt.side_effect = RuntimeError("boom secret-token")
+
+        with patch.dict("sys.modules", {"opik": mock_opik}):
+            with caplog.at_level("WARNING", logger="src.core.observability"):
+                result = obs_module.get_prompt("security_reviewer_instructions")
+
+        assert result == "Security fallback"
+        log_text = "\n".join(caplog.messages)
+        assert "security_reviewer_instructions" in log_text
+        assert "secret-token" not in log_text
+
+    def test_get_prompt_reads_file_without_importing_opik_when_key_empty(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "")
+        monkeypatch.setattr(obs_module, "_PROJECT_ROOT", tmp_path)
+        prompt_file = tmp_path / "prompts" / "bug_reviewer_instructions.txt"
+        prompt_file.parent.mkdir(parents=True)
+        prompt_file.write_text("Bug fallback", encoding="utf-8")
+        sys.modules.pop("opik", None)
+
+        result = obs_module.get_prompt("bug_reviewer_instructions")
+
+        assert result == "Bug fallback"
+        assert "opik" not in sys.modules
+
+    def test_warm_prompt_cache_loads_each_requested_prompt(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "")
+        monkeypatch.setattr(obs_module, "_PROJECT_ROOT", tmp_path)
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir(parents=True)
+        for name in ("bug_reviewer_instructions", "security_reviewer_instructions"):
+            (prompts_dir / f"{name}.txt").write_text(f"Fallback {name}", encoding="utf-8")
+
+        obs_module.warm_prompt_cache(
+            ("bug_reviewer_instructions", "security_reviewer_instructions")
+        )
+
+        assert obs_module._prompt_cache == {
+            "bug_reviewer_instructions": "Fallback bug_reviewer_instructions",
+            "security_reviewer_instructions": "Fallback security_reviewer_instructions",
+        }
+
+    def test_render_prompt_uses_only_registered_variables(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "")
+        monkeypatch.setattr(obs_module, "_PROJECT_ROOT", tmp_path)
+        prompt_file = tmp_path / "prompts" / "pr_review_prompt.txt"
+        prompt_file.parent.mkdir(parents=True)
+        prompt_file.write_text("Title={pr_title}; Diff={diff_text}", encoding="utf-8")
+
+        result = obs_module.render_prompt(
+            "pr_review_prompt",
+            pr_title="Safe title",
+            diff_text="Safe diff",
+            ignored="nope",
+        )
+
+        assert result == "Title=Safe title; Diff=Safe diff"
+
+    def test_render_prompt_preserves_literal_json_braces(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(Config, "OPIK_API_KEY", "")
+        monkeypatch.setattr(obs_module, "_PROJECT_ROOT", tmp_path)
+        prompt_file = tmp_path / "prompts" / "pr_review_prompt.txt"
+        prompt_file.parent.mkdir(parents=True)
+        prompt_file.write_text(
+            'Return JSON like {"summary": "x"}. Title={pr_title}; Diff={diff_text}',
+            encoding="utf-8",
+        )
+
+        result = obs_module.render_prompt(
+            "pr_review_prompt",
+            pr_title="Safe title",
+            diff_text="Safe diff",
+        )
+
+        assert result == 'Return JSON like {"summary": "x"}. Title=Safe title; Diff=Safe diff'

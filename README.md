@@ -25,12 +25,12 @@ Opcionalmente, integra un **Knowledge Graph en Neo4j** para detectar impacto cro
 
 ## Proveedores LLM soportados
 
-| Proveedor | Descripción | Coste |
-|-----------|-------------|-------|
-| **Cerebras** (via HuggingFace router) | Muy rápido, structured outputs | Gratis (1M tokens/día) |
-| **HuggingFace** | Modelos hosted en HF Inference API | Gratis |
-| **OpenAI** | API oficial de OpenAI | De pago |
-| **Ollama** | Modelos locales | Gratis (local) |
+| Proveedor                             | Descripción                        | Coste                  |
+| ------------------------------------- | ---------------------------------- | ---------------------- |
+| **Cerebras** (via HuggingFace router) | Muy rápido, structured outputs     | Gratis (1M tokens/día) |
+| **HuggingFace**                       | Modelos hosted en HF Inference API | Gratis                 |
+| **OpenAI**                            | API oficial de OpenAI              | De pago                |
+| **Ollama**                            | Modelos locales                    | Gratis (local)         |
 
 ## Requisitos
 
@@ -100,6 +100,25 @@ BACKEND_URL=http://backend:8000            # en docker-compose usa el nombre del
 
 El token de GitHub necesita permisos `repo` (repositorios privados) o `public_repo` (públicos).
 
+### Opik y prompts de agentes
+
+La integración con Opik es opcional. Si `OPIK_API_KEY` está vacío, el sistema no intenta conectarse a Opik para resolver prompts y usa los fallbacks locales versionados en `prompts/*.txt`.
+
+Si `OPIK_API_KEY` está definido, el backend intenta cargar los prompts desde la librería de prompts de Opik con estos nombres exactos:
+
+| Prompt Opik                               | Uso                                             | Variables                   |
+| ----------------------------------------- | ----------------------------------------------- | --------------------------- |
+| `bug_reviewer_instructions`               | Instrucciones de los dos revisores de bugs      | —                           |
+| `security_reviewer_instructions`          | Instrucciones del revisor de seguridad          | —                           |
+| `cross_repo_impact_reviewer_instructions` | Instrucciones del revisor de impacto cross-repo | —                           |
+| `bug_review_team_leader`                  | Prompt del líder del equipo de bugs             | `{shared_prompt}`           |
+| `pr_review_prompt`                        | Template del PR compartido con los agentes      | `{pr_title}`, `{diff_text}` |
+| `reviewer_instructions`                   | Compatibilidad con el flujo legacy mono-agente  | —                           |
+
+El backend hace warmup de los prompts activos al arrancar. Si Opik no está disponible o falta un prompt, se registra un warning y se usa el fichero local equivalente, por ejemplo `prompts/bug_reviewer_instructions.txt`.
+
+Los templates pueden incluir JSON o llaves literales sin escaparlas. El renderizado solo sustituye las variables registradas para cada prompt.
+
 ## Uso via interfaz web
 
 Abre `http://localhost:8501` en el navegador:
@@ -126,23 +145,23 @@ Cuando varios servicios comparten contratos (eventos, esquemas, APIs), un cambio
 
 **Nodos**
 
-| Label | Descripción |
-|---|---|
-| `Repository` | Repositorio Git |
-| `Service` | Microservicio o aplicación |
-| `Contract` | Contrato entre servicios (evento, API, mensaje) |
-| `Schema` | Esquema de datos (JSON Schema, Avro, Protobuf…) |
-| `Field` | Campo individual de un schema |
+| Label        | Descripción                                     |
+| ------------ | ----------------------------------------------- |
+| `Repository` | Repositorio Git                                 |
+| `Service`    | Microservicio o aplicación                      |
+| `Contract`   | Contrato entre servicios (evento, API, mensaje) |
+| `Schema`     | Esquema de datos (JSON Schema, Avro, Protobuf…) |
+| `Field`      | Campo individual de un schema                   |
 
 **Relaciones**
 
-| Relación | Significado |
-|---|---|
-| `OWNS` | Un repositorio o servicio posee un contrato/schema |
-| `PRODUCES` | Un servicio produce un contrato |
-| `CONSUMES` | Un servicio consume un contrato |
-| `DEFINES` | Un contrato define un schema |
-| `HAS_FIELD` | Un schema tiene un campo |
+| Relación    | Significado                                        |
+| ----------- | -------------------------------------------------- |
+| `OWNS`      | Un repositorio o servicio posee un contrato/schema |
+| `PRODUCES`  | Un servicio produce un contrato                    |
+| `CONSUMES`  | Un servicio consume un contrato                    |
+| `DEFINES`   | Un contrato define un schema                       |
+| `HAS_FIELD` | Un schema tiene un campo                           |
 
 ### Poblar el grafo
 
@@ -189,7 +208,7 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 2. Render crea automáticamente dos servicios Docker (`pr-reviewer-api` y `pr-reviewer-web`)
 3. Completar las env vars secretas en el dashboard de Render
 4. Actualizar `CORS_ORIGINS` (backend) y `BACKEND_URL` (frontend) con las URLs públicas asignadas
-5. *(Opcional)* Configurar webhook en GitHub → `https://<backend>.onrender.com/api/v1/webhook/github`
+5. _(Opcional)_ Configurar webhook en GitHub → `https://<backend>.onrender.com/api/v1/webhook/github`
 
 > El endpoint del webhook valida la firma HMAC-SHA256. Si `GITHUB_WEBHOOK_SECRET` no está configurado, devuelve `501 Not Implemented` (seguro por defecto).
 
@@ -212,11 +231,16 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 │   ├── Dockerfile               # Imagen Docker del frontend
 │   └── pyproject.toml           # Dependencias del frontend (streamlit + httpx)
 ├── prompts/
-│   └── reviewer_instructions.txt # Prompt del agente (versionado + fallback Opik)
+│   ├── bug_reviewer_instructions.txt               # Fallback Opik: reviewer de bugs
+│   ├── bug_review_team_leader.txt                  # Fallback Opik: líder del equipo de bugs
+│   ├── cross_repo_impact_reviewer_instructions.txt # Fallback Opik: impacto cross-repo
+│   ├── pr_review_prompt.txt                        # Fallback Opik: template de PR
+│   ├── reviewer_instructions.txt                   # Fallback Opik: flujo legacy/compat
+│   └── security_reviewer_instructions.txt          # Fallback Opik: reviewer de seguridad
 ├── src/                         # Capa de dominio (importada por backend)
 │   ├── core/
 │   │   ├── config.py            # Config: variables de entorno
-│   │   ├── observability.py     # Opik: configure_opik(), get_reviewer_prompt(), track_if_enabled()
+│   │   ├── observability.py     # Opik: tracing, prompt registry, fallbacks y tracking
 │   │   ├── logging_config.py    # Logging centralizado
 │   │   └── exceptions.py        # Excepciones personalizadas (GraphError…)
 │   ├── knowledge/               # Módulo Knowledge Graph
@@ -228,9 +252,10 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 │   └── reviewer/
 │       ├── agent.py             # Agno Agent + review_pr_with_config()
 │       ├── models.py            # BugReport, ReviewOutput
-│       ├── prompts.py           # REVIEWER_INSTRUCTIONS + _build_impact_section()
+│       ├── prompts.py           # Constantes lazy respaldadas por Opik/fallback + _build_impact_section()
 │       └── tools.py             # fetch_pr_data() + post_review_comments()
-├── tests/                       # 121 tests unitarios
+├── backend/tests/               # Tests del backend FastAPI
+├── frontend/tests/              # Tests de helpers de frontend
 ├── examples/
 │   └── topology.yaml            # Ejemplo de topología de servicios
 ├── docker-compose.yml           # Orquestación local: backend + frontend + neo4j
@@ -241,21 +266,28 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 
 ## API REST (backend)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `POST` | `/api/v1/review` | Ejecuta revisión de PR, devuelve `ReviewResponse` |
-| `GET` | `/api/v1/providers` | Lista proveedores LLM disponibles |
-| `GET` | `/health` | Health check (siempre HTTP 200) |
+| Método | Endpoint                 | Descripción                                       |
+| ------ | ------------------------ | ------------------------------------------------- |
+| `POST` | `/api/v1/review`         | Ejecuta revisión de PR, devuelve `ReviewResponse` |
+| `GET`  | `/api/v1/providers`      | Lista proveedores LLM disponibles                 |
+| `GET`  | `/health`                | Health check (siempre HTTP 200)                   |
 | `POST` | `/api/v1/webhook/github` | Webhook GitHub (requiere `GITHUB_WEBHOOK_SECRET`) |
 
 ## Tests
 
 ```bash
-# Tests unitarios (sin dependencias externas)
-uv run pytest tests/ -m "not integration"
+# Suite completa configurada en pyproject.toml
+uv run pytest
 
-# Todos los tests (requiere Neo4j y credenciales reales)
-uv run pytest tests/
+# Lint
+uv run ruff check .
+
+# Tests focalizados de prompts/Opik
+uv run pytest src/core/tests/test_observability.py \
+  src/reviewer/tests/test_prompts.py \
+  src/reviewer/tests/test_agent.py \
+  src/reviewer/tests/test_bug_team.py \
+  backend/tests/test_startup_prompts.py
 ```
 
-Los 214 tests cubren los módulos `core`, `reviewer`, `knowledge` y `observability`.
+La suite cubre backend, frontend, `core`, `reviewer`, `knowledge`, observabilidad Opik y fallbacks locales de prompts.

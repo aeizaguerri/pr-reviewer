@@ -1,4 +1,4 @@
-"""Unit tests: L2 — Anti-injection defense paragraph in REVIEWER_INSTRUCTIONS."""
+"""Unit tests: prompt constants and anti-injection prompt behavior."""
 
 from src.reviewer.prompts import REVIEWER_INSTRUCTIONS
 
@@ -33,14 +33,52 @@ class TestAntiInjectionParagraph:
 
     def test_security_section_heading(self):
         """A 'Security' or 'Untrusted' section heading must be present."""
-        assert (
-            "Security" in REVIEWER_INSTRUCTIONS or "CRITICAL" in REVIEWER_INSTRUCTIONS
-        )
+        assert "Security" in REVIEWER_INSTRUCTIONS or "CRITICAL" in REVIEWER_INSTRUCTIONS
 
     def test_instructions_is_non_empty_string(self):
         """Sanity: the constant must be a non-empty string."""
         assert isinstance(REVIEWER_INSTRUCTIONS, str)
         assert len(REVIEWER_INSTRUCTIONS) > 100
+
+
+class TestMultiAgentPromptConstants:
+    def test_specialist_constants_load_through_prompt_registry(self, monkeypatch):
+        import src.reviewer.prompts as prompts
+
+        for attr in (
+            "BUG_REVIEWER_INSTRUCTIONS",
+            "SECURITY_REVIEWER_INSTRUCTIONS",
+            "CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS",
+        ):
+            prompts.__dict__.pop(attr, None)
+
+        requested: list[str] = []
+
+        def fake_get_prompt(name: str) -> str:
+            requested.append(name)
+            return f"loaded:{name}"
+
+        monkeypatch.setattr(prompts, "get_prompt", fake_get_prompt)
+
+        assert prompts.BUG_REVIEWER_INSTRUCTIONS == "loaded:bug_reviewer_instructions"
+        assert prompts.SECURITY_REVIEWER_INSTRUCTIONS == "loaded:security_reviewer_instructions"
+        assert (
+            prompts.CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS
+            == "loaded:cross_repo_impact_reviewer_instructions"
+        )
+        assert requested == [
+            "bug_reviewer_instructions",
+            "security_reviewer_instructions",
+            "cross_repo_impact_reviewer_instructions",
+        ]
+
+    def test_reviewer_instructions_keeps_compat_loader(self, monkeypatch):
+        import src.reviewer.prompts as prompts
+
+        prompts.__dict__.pop("REVIEWER_INSTRUCTIONS", None)
+        monkeypatch.setattr(prompts, "get_reviewer_prompt", lambda: "compat reviewer")
+
+        assert prompts.REVIEWER_INSTRUCTIONS == "compat reviewer"
 
 
 class TestTagNameCrossLayerConsistency:

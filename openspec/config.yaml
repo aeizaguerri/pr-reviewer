@@ -1,0 +1,54 @@
+project:
+  name: pr-reviewer
+  mode: openspec
+  description: "PR Code Reviewer — multi-agent architecture evolution"
+
+stack:
+  language: python
+  python_version: ">=3.14"
+  backend: fastapi
+  frontend: streamlit
+  agent_framework: agno
+  database: neo4j
+  other:
+    - pygithub
+    - openai
+    - opik
+    - openinference-instrumentation-agno
+    - httpx
+    - python-dotenv
+    - pyyaml
+
+testing:
+  runner: pytest
+  command: "uv run pytest"
+  strict_tdd: true
+  collected_tests: 289
+  markers:
+    - "integration: requires a running Neo4j instance (skip by default with -m 'not integration')"
+  testpaths:
+    - backend/tests
+    - src/core/tests
+    - src/knowledge/tests
+    - src/reviewer/tests
+
+linting:
+  linter: ruff
+  check_command: "uv run ruff check ."
+  format_command: "uv run ruff format ."
+  target_version: "py313"
+  line_length: 100
+
+sdd:
+  phases:
+    - init
+    - explore
+    - proposal
+    - spec
+    - design
+    - tasks
+    - apply
+    - verify
+    - archive
+  artifacts_dir: openspec
+  git_visible: true

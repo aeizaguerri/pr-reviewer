@@ -1,10 +1,13 @@
 """Prompt constants and helpers for the PR code reviewer."""
 
 from src.knowledge.models import ImpactResult
-from src.core.observability import get_reviewer_prompt
+from src.core.observability import get_prompt, get_reviewer_prompt
 
-# Type annotation for static analysis — value is loaded lazily via __getattr__.
+# Type annotations for static analysis — values are loaded lazily via __getattr__.
 REVIEWER_INSTRUCTIONS: str
+BUG_REVIEWER_INSTRUCTIONS: str
+SECURITY_REVIEWER_INSTRUCTIONS: str
+CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS: str
 
 
 def __getattr__(name: str) -> str:
@@ -12,6 +15,17 @@ def __getattr__(name: str) -> str:
         value = get_reviewer_prompt()
         globals()["REVIEWER_INSTRUCTIONS"] = value
         return value
+
+    prompt_names = {
+        "BUG_REVIEWER_INSTRUCTIONS": "bug_reviewer_instructions",
+        "SECURITY_REVIEWER_INSTRUCTIONS": "security_reviewer_instructions",
+        "CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS": "cross_repo_impact_reviewer_instructions",
+    }
+    if name in prompt_names:
+        value = get_prompt(prompt_names[name])
+        globals()[name] = value
+        return value
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
