@@ -5,6 +5,7 @@ import re
 from fastapi import APIRouter, Header, HTTPException
 
 from backend.core.providers import get_all_providers
+from src.core.config import Config
 from backend.models.schemas import (
     HealthResponse,
     ProvidersResponse,
@@ -39,7 +40,10 @@ async def list_providers() -> ProvidersResponse:
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
-    """Check service health including Neo4j connectivity."""
+    """Check service health without blocking deploys on optional Neo4j."""
+    if not Config.ENABLE_GRAPH_ENRICHMENT:
+        return HealthResponse(status="ok", neo4j=False)
+
     from src.knowledge.client import check_health
 
     neo4j_ok = check_health()

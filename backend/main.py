@@ -11,8 +11,9 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.v1.routes import router
+from backend.api.v1.routes import health_check, router
 from backend.core.config import BackendConfig
+from backend.models.schemas import HealthResponse
 from src.core.config import Config
 from src.core.logging_config import configure_logging
 from src.core.observability import configure_opik
@@ -93,6 +94,12 @@ app.add_middleware(
 
 # API routes
 app.include_router(router, prefix="/api/v1")
+
+
+@app.get("/health", response_model=HealthResponse)
+async def root_health_check() -> HealthResponse:
+    """Render-compatible health check path."""
+    return await health_check()
 
 
 # ---------------------------------------------------------------------------
