@@ -1,0 +1,32 @@
+services:
+  frontend:
+    image: node:22-alpine
+    working_dir: /workspace/frontend
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/workspace
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    command: sh -lc "npm ci && npm run dev -- --host 0.0.0.0"
+
+  frontend-test:
+    image: node:22-alpine
+    working_dir: /workspace/frontend
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/workspace
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    command: sh -lc "npm ci && npm test -- --run"
+
+  frontend-build:
+    image: node:22-alpine
+    working_dir: /workspace/frontend
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/workspace
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    command: sh -lc "npm ci && npm run build"
