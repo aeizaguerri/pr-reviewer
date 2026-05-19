@@ -3,6 +3,7 @@ import { getHealth, getProviders } from "./api/client";
 import { AppError } from "./api/errors";
 import type { HealthResponse, ProviderInfo, ReviewResponse } from "./api/types";
 import { ReviewForm } from "./components/ReviewForm";
+import { ReviewResults } from "./components/ReviewResults";
 import "./styles/global.css";
 
 type AsyncState<T> =
@@ -127,11 +128,7 @@ export default function App() {
 						providers={providers.data}
 						onReviewComplete={setLatestReview}
 					/>
-					{latestReview ? (
-						<p role="status">
-							Review completed. Detailed result rendering is coming next.
-						</p>
-					) : null}
+					{latestReview ? <ReviewResults review={latestReview} /> : null}
 				</section>
 			) : null}
 		</main>

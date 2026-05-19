@@ -168,12 +168,6 @@ export function ReviewForm({ providers, onReviewComplete }: ReviewFormProps) {
 				<p role="status">Reviews can take several minutes.</p>
 			) : null}
 			{state.status === "error" ? <p role="alert">{state.message}</p> : null}
-			{state.status === "success" ? (
-				<p role="status">
-					Review completed. Result details arrive in the next UI slice.
-				</p>
-			) : null}
-
 			<button type="submit" disabled={!canSubmit}>
 				{isLoading ? "Running review" : "Run review"}
 			</button>

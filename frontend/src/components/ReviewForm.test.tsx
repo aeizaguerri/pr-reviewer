@@ -139,6 +139,9 @@ describe("ReviewForm", () => {
 				expect.objectContaining({ summary: "Review queued" }),
 			),
 		);
+		expect(
+			screen.queryByText(/result details arrive in the next ui slice/i),
+		).not.toBeInTheDocument();
 		expect(storageSetItem).not.toHaveBeenCalled();
 	});
 
