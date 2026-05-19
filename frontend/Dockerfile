@@ -1,10 +1,18 @@
-FROM python:3.14-slim
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-WORKDIR /app
-COPY frontend/pyproject.toml frontend/uv.lock ./frontend/
-RUN uv sync --project frontend --no-dev --locked
-COPY src/ ./src/
-COPY frontend/ ./frontend/
-ENV PYTHONPATH=/app
-EXPOSE 8501
-CMD ["sh", "-c", "uv run --project frontend streamlit run frontend/streamlit_app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
+FROM node:22-alpine AS build
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+FROM nginx:1.27-alpine
+
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/frontend/dist/ /usr/share/nginx/html/
+
+EXPOSE 80
+
+CMD ["/bin/sh", "-c", "printf 'window.__PR_REVIEWER_CONFIG__ = { apiBaseUrl: \"%s\" };\n' \"${VITE_API_BASE_URL:-}\" > /usr/share/nginx/html/config.js && nginx -g 'daemon off;'"]

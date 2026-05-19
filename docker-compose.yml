@@ -9,16 +9,16 @@ services:
       - path: .env
         required: false
     environment:
-      - CORS_ORIGINS=http://localhost:8501
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     ports:
-      - "8501:8501"
+      - "8080:80"
     environment:
-      - BACKEND_URL=http://backend:8000
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
     depends_on:
       - backend
 
