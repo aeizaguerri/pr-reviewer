@@ -43,7 +43,7 @@ def run_review(req: ReviewRequest, api_key: str = "", github_token: str = "") ->
         req.base_url_override,
     )
 
-    supports_structured_output = SUPPORTS_STRUCTURED_OUTPUT.get(req.provider, False)
+    supports_structured_output = SUPPORTS_STRUCTURED_OUTPUT.get(req.provider.lower(), False)
 
     result = review_pr_with_config(
         owner=req.owner,

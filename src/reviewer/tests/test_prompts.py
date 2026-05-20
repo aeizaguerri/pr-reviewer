@@ -80,6 +80,19 @@ class TestMultiAgentPromptConstants:
 
         assert prompts.REVIEWER_INSTRUCTIONS == "compat reviewer"
 
+    def test_local_security_prompt_excludes_general_correctness_bugs(self):
+        from pathlib import Path
+
+        prompt = Path("prompts/security_reviewer_instructions.txt").read_text(
+            encoding="utf-8"
+        )
+        lower = prompt.lower()
+
+        assert "only exploitable" in lower
+        assert "do not report general correctness bugs" in lower
+        assert "sorting/order bugs" in lower
+        assert "attacker" in lower
+
 
 class TestTagNameCrossLayerConsistency:
     """S1: Tag names in REVIEWER_INSTRUCTIONS must match those used in _make_prompt()."""

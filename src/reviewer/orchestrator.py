@@ -33,8 +33,11 @@ from src.reviewer.models import (
     ReviewHealth,
     ReviewOutput,
     SpecialistBugOutput,
+    SpecialistBugPayload,
     SpecialistFailure,
+    SpecialistImpactPayload,
     SpecialistImpactOutput,
+    SpecialistSecurityPayload,
     SpecialistSecurityOutput,
 )
 from src.reviewer.prompts import (
@@ -122,10 +125,20 @@ def _content_to_raw(content: Any) -> str:
     return json.dumps(content)
 
 
+def _specialist_payload_dict(raw: str) -> dict[str, Any]:
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("Specialist output must be a JSON object")
+    cleaned = dict(data)
+    for key in ("provider", "raw_content", "parse_failed"):
+        cleaned.pop(key, None)
+    return cleaned
+
+
 def _parse_specialist_bug_output(raw: str, role: str, ctx: ReviewContext) -> SpecialistBugOutput:
     try:
-        data = json.loads(raw)
-        out = SpecialistBugOutput(**data)
+        payload = SpecialistBugPayload(**_specialist_payload_dict(raw))
+        out = SpecialistBugOutput(bugs=payload.bugs)
     except Exception:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
         return SpecialistBugOutput(bugs=[], provider=role, raw_content=raw, parse_failed=True)
@@ -138,8 +151,8 @@ def _parse_specialist_security_output(
     raw: str, ctx: ReviewContext
 ) -> SpecialistSecurityOutput | SpecialistFailure:
     try:
-        data = json.loads(raw)
-        return SpecialistSecurityOutput(**data, raw_content=raw)
+        payload = SpecialistSecurityPayload(**_specialist_payload_dict(raw))
+        return SpecialistSecurityOutput(bugs=payload.bugs, raw_content=raw)
     except Exception as exc:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
         return SpecialistFailure(role="security-reviewer", reason=f"parse failure: {exc}")
@@ -149,8 +162,8 @@ def _parse_specialist_impact_output(
     raw: str, ctx: ReviewContext
 ) -> SpecialistImpactOutput | SpecialistFailure:
     try:
-        data = json.loads(raw)
-        return SpecialistImpactOutput(**data, raw_content=raw)
+        payload = SpecialistImpactPayload(**_specialist_payload_dict(raw))
+        return SpecialistImpactOutput(impact_warnings=payload.impact_warnings, raw_content=raw)
     except Exception as exc:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
         return SpecialistFailure(role="cross-repo-impact-reviewer", reason=f"parse failure: {exc}")
@@ -176,7 +189,8 @@ async def _run_bug_reviewers(
     supports_structured_output: bool,
 ) -> tuple[SpecialistBugOutput, SpecialistBugOutput]:
     """Run blind Bug Reviewer A/B using an Agno Team broadcast."""
-    schema = SpecialistBugOutput if supports_structured_output else None
+    schema = SpecialistBugPayload if supports_structured_output else None
+    model_id, base_url, api_key = provider_config
     agent_a = _build_agent(
         agent_id="bug-reviewer-a",
         instructions=BUG_REVIEWER_INSTRUCTIONS,
@@ -193,6 +207,7 @@ async def _run_bug_reviewers(
     leader_prompt = render_prompt("bug_review_team_leader", shared_prompt=ctx.shared_prompt)
     team = Team(
         id="bug-review-team",
+        model=OpenAILike(id=model_id, base_url=base_url, api_key=api_key),
         mode="broadcast",
         members=[agent_a, agent_b],
         instructions=leader_prompt,
@@ -245,7 +260,7 @@ async def _run_security_reviewer(
         agent_id="security-reviewer",
         instructions=SECURITY_REVIEWER_INSTRUCTIONS,
         provider_config=provider_config,
-        output_schema=SpecialistSecurityOutput if supports_structured_output else None,
+        output_schema=SpecialistSecurityPayload if supports_structured_output else None,
     )
     try:
         run = await asyncio.wait_for(_maybe_await(agent.arun(ctx.shared_prompt)), timeout=timeout)
@@ -272,7 +287,7 @@ async def _run_cross_repo_reviewer(
         agent_id="cross-repo-impact-reviewer",
         instructions=CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS,
         provider_config=provider_config,
-        output_schema=SpecialistImpactOutput if supports_structured_output else None,
+        output_schema=SpecialistImpactPayload if supports_structured_output else None,
     )
     try:
         run = await asyncio.wait_for(_maybe_await(agent.arun(ctx.shared_prompt)), timeout=timeout)
@@ -417,6 +432,32 @@ def _ground_impact_warnings(
         grounded.append(w)
 
     return grounded
+
+
+def _ground_bug_reports(parsed: list[BugReport], ctx: ReviewContext, source: str) -> list[BugReport]:
+    """Discard bug findings whose file is not present in the PR diff."""
+    if not parsed:
+        return []
+
+    changed_paths_set = set(ctx.changed_paths)
+    grounded: list[BugReport] = []
+    for bug in parsed:
+        if bug.file not in changed_paths_set:
+            logger.warning(
+                "Discarding ungrounded %s bug: file=%s not in changed_paths",
+                source,
+                bug.file,
+            )
+            continue
+        grounded.append(bug)
+    return grounded
+
+
+def _ground_specialist_bug_output(
+    output: SpecialistBugOutput, ctx: ReviewContext
+) -> SpecialistBugOutput:
+    output.bugs = _ground_bug_reports(output.bugs, ctx, output.provider or "bug-reviewer")
+    return output
 
 
 def _merge_bug_dicts(existing: dict, incoming: dict) -> None:
@@ -655,6 +696,9 @@ async def arun_multi_agent_review(
         impact_warnings = cross_repo_result.impact_warnings
 
     # Ground parsed impact warnings against changed paths / graph evidence
+    bug_a = _ground_specialist_bug_output(bug_a, ctx)
+    bug_b = _ground_specialist_bug_output(bug_b, ctx)
+    security_bugs = _ground_bug_reports(security_bugs, ctx, "security-reviewer")
     impact_warnings = _ground_impact_warnings(impact_warnings, ctx)
 
     # Merge graph-derived warnings with reviewer warnings, deduping semantically
