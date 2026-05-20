@@ -36,7 +36,7 @@ describe("API client", () => {
 		await getHealth();
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			"https://runtime-api.example.test/health",
+			"https://runtime-api.example.test/api/v1/health",
 			{
 				headers: { Accept: "application/json" },
 				method: "GET",
@@ -52,10 +52,13 @@ describe("API client", () => {
 
 		await expect(getHealth()).resolves.toEqual({ status: "ok", neo4j: false });
 
-		expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/health", {
-			headers: { Accept: "application/json" },
-			method: "GET",
-		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://api.example.test/api/v1/health",
+			{
+				headers: { Accept: "application/json" },
+				method: "GET",
+			},
+		);
 	});
 
 	it("calls the provider discovery endpoint", async () => {
@@ -83,16 +86,14 @@ describe("API client", () => {
 	});
 
 	it("submits reviews with the expected endpoint, JSON body, and credential headers", async () => {
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValue(
-				jsonResponse({
-					summary: "clean",
-					approved: true,
-					bugs: [],
-					impact_warnings: [],
-				}),
-			);
+		const fetchMock = vi.fn().mockResolvedValue(
+			jsonResponse({
+				summary: "clean",
+				approved: true,
+				bugs: [],
+				impact_warnings: [],
+			}),
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		await submitReview({

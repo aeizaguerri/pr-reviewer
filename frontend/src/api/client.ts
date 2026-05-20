@@ -44,7 +44,7 @@ async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 export function getHealth(): Promise<HealthResponse> {
-	return requestJson<HealthResponse>("/health", {
+	return requestJson<HealthResponse>("/api/v1/health", {
 		method: "GET",
 		headers: { Accept: "application/json" },
 	});

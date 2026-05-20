@@ -46,7 +46,9 @@ describe("frontend deployment configuration", () => {
 		const compose = readRepoFile("docker-compose.yml");
 
 		expect(compose).toContain("8080:80");
-		expect(compose).toContain("http://localhost:8080,http://localhost:5173");
+		expect(compose).toContain(
+			"CORS_ORIGINS=${LOCAL_CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}",
+		);
 		expect(compose).toContain(
 			"VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}",
 		);

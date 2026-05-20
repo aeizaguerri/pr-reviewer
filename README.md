@@ -66,7 +66,6 @@ docker compose -f docker-compose.frontend-dev.yml run --rm frontend-build
 
 Las API keys del proveedor LLM y el token de GitHub se introducen en la UI y se mantienen solo en memoria del navegador; no se persisten en `localStorage`, `sessionStorage` ni cookies.
 
-
 ## Configuración
 
 Copia `.env.example` a `.env` y completa las variables:
@@ -95,6 +94,8 @@ OLLAMA_API_URL=http://localhost:11434/v1   # solo si usás el provider ollama
 
 # CORS — URL del frontend
 CORS_ORIGINS=http://localhost:8080,http://localhost:5173
+# Docker Compose local usa LOCAL_CORS_ORIGINS si necesitás override sin tocar CORS_ORIGINS
+LOCAL_CORS_ORIGINS=http://localhost:8080,http://localhost:5173
 
 # Logging
 LOG_LEVEL=INFO                             # DEBUG | INFO | WARNING | ERROR | CRITICAL
