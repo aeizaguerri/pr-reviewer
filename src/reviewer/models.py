@@ -66,6 +66,24 @@ class SpecialistImpactOutput(BaseModel):
     raw_content: str = Field(default="")
 
 
+class SpecialistBugPayload(BaseModel):
+    """LLM-facing payload for a Bug-reviewer specialist."""
+
+    bugs: list[BugReport] = Field(default_factory=list)
+
+
+class SpecialistSecurityPayload(BaseModel):
+    """LLM-facing payload for the Security-reviewer specialist."""
+
+    bugs: list[BugReport] = Field(default_factory=list)
+
+
+class SpecialistImpactPayload(BaseModel):
+    """LLM-facing payload for the Cross-Repo Impact reviewer."""
+
+    impact_warnings: list[ImpactWarning] = Field(default_factory=list)
+
+
 class SpecialistFailure(BaseModel):
     """Marker for a specialist that failed or timed out."""
 

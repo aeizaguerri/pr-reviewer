@@ -6,6 +6,29 @@ from backend.core.providers import PROVIDERS, build_provider_config
 
 
 # ---------------------------------------------------------------------------
+# Provider: cerebras
+# ---------------------------------------------------------------------------
+
+
+class TestCerebrasProvider:
+    def test_returns_hf_router_base_url(self):
+        model_id, base_url, api_key = build_provider_config(
+            "cerebras", "meta-llama/Llama-3.1-8B-Instruct:cerebras", "hf-key-123"
+        )
+        assert base_url == "https://router.huggingface.co/v1"
+
+    def test_returns_provided_api_key(self):
+        model_id, base_url, api_key = build_provider_config(
+            "cerebras", "meta-llama/Llama-3.1-8B-Instruct:cerebras", "hf-key-123"
+        )
+        assert api_key == "hf-key-123"
+
+    def test_falls_back_to_default_model_when_empty(self):
+        model_id, base_url, api_key = build_provider_config("cerebras", "", "hf-key")
+        assert model_id == PROVIDERS["cerebras"]["default_model"]
+
+
+# ---------------------------------------------------------------------------
 # Provider: huggingface
 # ---------------------------------------------------------------------------
 

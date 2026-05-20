@@ -165,12 +165,41 @@ class TestBugReviewers:
 
         await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
 
-        # Verify OpenAILike was called with the same config for both agents
-        assert mock_openai_like.call_count == 2
+        # Verify OpenAILike was called with the same config for both agents.
+        # The team leader also gets an explicit model now; that propagation is
+        # asserted separately in test_team_leader_uses_same_model_config.
+        assert mock_openai_like.call_count == 3
         calls = mock_openai_like.call_args_list
         assert calls[0].kwargs["id"] == calls[1].kwargs["id"] == "my-model"
         assert calls[0].kwargs["base_url"] == calls[1].kwargs["base_url"]
         assert calls[0].kwargs["api_key"] == calls[1].kwargs["api_key"]
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator.Agent")
+    @patch("src.reviewer.orchestrator.Team")
+    @patch("src.reviewer.orchestrator.OpenAILike")
+    async def test_team_leader_uses_same_model_config(
+        self, mock_openai_like, mock_team_cls, mock_agent_cls
+    ):
+        from src.reviewer.orchestrator import _run_bug_reviewers
+
+        ctx = self._make_context()
+
+        mock_team = MagicMock()
+        mock_team_cls.return_value = mock_team
+        mock_msg_a = MagicMock(agent_id="bug-reviewer-a", content=json.dumps({"bugs": []}))
+        mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
+        mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
+
+        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+
+        assert mock_openai_like.call_count == 3
+        team_model_call = mock_openai_like.call_args_list[2]
+        assert team_model_call.kwargs == {
+            "id": "my-model",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-test",
+        }
 
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator.Agent")
@@ -267,6 +296,42 @@ class TestBugReviewers:
         assert len(result_a.bugs) == 0
         assert result_a.raw_content == "not valid json"
         assert len(result_b.bugs) == 0
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator.Agent")
+    @patch("src.reviewer.orchestrator.Team")
+    @patch("src.reviewer.orchestrator.OpenAILike")
+    async def test_parse_success_ignores_model_metadata(
+        self, mock_openai_like, mock_team_cls, mock_agent_cls
+    ):
+        from src.reviewer.orchestrator import _run_bug_reviewers
+
+        ctx = self._make_context()
+        bug = self._make_bug_report()
+
+        mock_team = MagicMock()
+        mock_team_cls.return_value = mock_team
+        mock_msg_a = MagicMock(
+            agent_id="bug-reviewer-a",
+            content=json.dumps(
+                {
+                    "bugs": [bug.model_dump()],
+                    "provider": "wrong-provider",
+                    "parse_failed": True,
+                }
+            ),
+        )
+        mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
+        mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
+
+        result_a, result_b = await _run_bug_reviewers(
+            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+        )
+
+        assert result_a.provider == "bug-reviewer-a"
+        assert result_a.parse_failed is False
+        assert len(result_a.bugs) == 1
+        assert result_b.provider == "bug-reviewer-b"
 
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator.Agent")

@@ -231,7 +231,7 @@ class TestFanOut:
         from src.reviewer.orchestrator import arun_multi_agent_review
 
         real_bug = BugReport(
-            file="src/a.py",
+            file="file.py",
             line=10,
             severity="major",
             description="bug",
@@ -255,7 +255,66 @@ class TestFanOut:
 
         assert isinstance(result, ReviewOutput)
         assert len(result.bugs) == 1
-        assert result.bugs[0].file == "src/a.py"
+        assert result.bugs[0].file == "file.py"
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator._run_bug_reviewers")
+    @patch("src.reviewer.orchestrator._run_security_reviewer")
+    @patch("src.reviewer.orchestrator._run_cross_repo_reviewer")
+    async def test_unsupported_bug_files_are_discarded(self, mock_cross, mock_sec, mock_bug):
+        """Bug findings whose file is not in the PR diff must be filtered out."""
+        from src.reviewer.orchestrator import arun_multi_agent_review
+
+        mock_bug.return_value = (
+            SpecialistBugOutput(
+                bugs=[
+                    BugReport(
+                        file="diff.txt",
+                        line=1,
+                        severity="critical",
+                        description="hallucinated file",
+                        suggestion="ignore",
+                    )
+                ],
+                provider="bug-reviewer-a",
+                raw_content='{"bugs": []}',
+            ),
+            SpecialistBugOutput(
+                bugs=[
+                    BugReport(
+                        file="file.py",
+                        line=10,
+                        severity="major",
+                        description="real bug",
+                        suggestion="fix",
+                    )
+                ],
+                provider="bug-reviewer-b",
+                raw_content='{"bugs": []}',
+            ),
+        )
+        mock_sec.return_value = SpecialistSecurityOutput(
+            bugs=[
+                BugReport(
+                    file="diff.txt",
+                    line=2,
+                    severity="critical",
+                    description="hallucinated security file",
+                    suggestion="ignore",
+                )
+            ]
+        )
+        mock_cross.return_value = SpecialistImpactOutput(impact_warnings=[])
+
+        with patch(
+            "src.reviewer.orchestrator.fetch_pr_data", return_value=("diff", "sha", "title")
+        ):
+            with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
+                mock_ctx.return_value = self._make_context()
+                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+
+        assert isinstance(result, ReviewOutput)
+        assert [bug.file for bug in result.bugs] == ["file.py"]
 
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator._run_bug_reviewers")
@@ -475,7 +534,7 @@ class TestFanOut:
         from src.reviewer.orchestrator import arun_multi_agent_review
 
         real_bug = BugReport(
-            file="src/a.py",
+            file="file.py",
             line=10,
             severity="critical",
             description="bug",
@@ -506,7 +565,7 @@ class TestFanOut:
         assert not result.summary.startswith("Error:")
         # The valid bug should still surface
         assert len(result.bugs) == 1
-        assert result.bugs[0].file == "src/a.py"
+        assert result.bugs[0].file == "file.py"
         assert result.approved is False
 
     @pytest.mark.anyio

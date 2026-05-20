@@ -8,6 +8,8 @@ load_dotenv()
 class Config:
     """Centralised application configuration loaded from environment variables."""
 
+    STRUCTURED_OUTPUT_PROVIDERS: set[str] = {"openai", "cerebras"}
+
     # HuggingFace
     HUGGING_FACE_API_KEY: str = os.getenv("HUGGING_FACE_API_KEY", "")
     HUGGING_FACE_API_URL: str = os.getenv(
@@ -73,5 +75,9 @@ class Config:
             return cls.DEFAULT_MODEL, "https://api.openai.com/v1", cls.OPENAI_API_KEY
         if provider == "ollama":
             return cls.DEFAULT_MODEL, cls.OLLAMA_API_URL, "ollama"
-        # Default: huggingface
+        # Cerebras is served through the Hugging Face router with the HF key.
         return cls.DEFAULT_MODEL, cls.HUGGING_FACE_API_URL, cls.HUGGING_FACE_API_KEY
+
+    @classmethod
+    def provider_supports_structured_output(cls, provider: str) -> bool:
+        return provider.lower() in cls.STRUCTURED_OUTPUT_PROVIDERS

@@ -96,3 +96,25 @@ class TestReviewPrBackwardCompat:
         sig = inspect.signature(review_pr)
         params = list(sig.parameters.keys())
         assert params == ["owner", "repo", "pr_number"], f"review_pr() signature changed: {params}"
+
+
+class TestReviewPrDefaultProvider:
+    @patch("src.reviewer.agent.Config.get_model_config")
+    @patch("src.reviewer.orchestrator.run_multi_agent_review")
+    def test_cerebras_default_provider_keeps_structured_output(self, mock_orch, mock_get_model_config):
+        from src.reviewer.agent import review_pr
+        from src.reviewer.models import ReviewOutput
+
+        mock_get_model_config.return_value = (
+            "meta-llama/Llama-3.1-8B-Instruct:cerebras",
+            "https://router.huggingface.co/v1",
+            "hf-key",
+        )
+        mock_orch.return_value = ReviewOutput(
+            summary="ok", approved=True, bugs=[], impact_warnings=[]
+        )
+
+        with patch("src.reviewer.agent.Config.DEFAULT_PROVIDER", "cerebras"):
+            review_pr("owner", "repo", 1)
+
+        assert mock_orch.call_args.kwargs["supports_structured_output"] is True

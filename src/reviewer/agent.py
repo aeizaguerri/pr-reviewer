@@ -55,7 +55,7 @@ def _build_agent(debug: bool = False) -> Agent:
     model_id, base_url, api_key = Config.get_model_config()
 
     # Use structured output only for providers that support it
-    use_structured = Config.DEFAULT_PROVIDER in ("openai",)
+    use_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
 
     return Agent(
         id="pr-code-reviewer",
@@ -215,7 +215,7 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
     from src.reviewer.orchestrator import run_multi_agent_review
 
     provider_config = Config.get_model_config()
-    supports_structured = Config.DEFAULT_PROVIDER in ("openai",)
+    supports_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
 
     return run_multi_agent_review(
         owner=owner,

@@ -150,6 +150,45 @@ class TestCrossRepoReviewer:
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator.Agent")
     @patch("src.reviewer.orchestrator.OpenAILike")
+    async def test_parse_success_ignores_model_metadata(self, mock_openai_like, mock_agent_cls):
+        from src.reviewer.orchestrator import _run_cross_repo_reviewer
+
+        ctx = self._make_context(impact_result=self._make_impact_result())
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_agent.arun = MagicMock(
+            return_value=MagicMock(
+                content=json.dumps(
+                    {
+                        "impact_warnings": [
+                            {
+                                "changed_file": "src/contracts/order.py",
+                                "changed_entity": "OrderCreated",
+                                "affected_service": "payment-worker",
+                                "affected_repository": "payment-service",
+                                "relationship_type": "CONSUMES",
+                                "severity": "high",
+                                "description": "Payment worker consumes this contract.",
+                            }
+                        ],
+                        "raw_content": "model-added",
+                    }
+                )
+            )
+        )
+
+        result = await _run_cross_repo_reviewer(
+            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+        )
+
+        assert isinstance(result, SpecialistImpactOutput)
+        assert len(result.impact_warnings) == 1
+        assert '"raw_content": "model-added"' in result.raw_content
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator.Agent")
+    @patch("src.reviewer.orchestrator.OpenAILike")
     async def test_parse_failure_returns_specialist_failure(self, mock_openai_like, mock_agent_cls):
         """Task 2.6 GREEN: parse failure returns SpecialistFailure with role."""
         from src.reviewer.orchestrator import _run_cross_repo_reviewer
