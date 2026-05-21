@@ -30,7 +30,7 @@ services:
       - key: HUGGING_FACE_API_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: "https://pr-reviewer-web.onrender.com"
+        value: "https://pr-reviewer-web-gfa5.onrender.com"
 
   - type: web
     name: pr-reviewer-web
