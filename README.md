@@ -9,7 +9,7 @@ Opcionalmente, integra un **Knowledge Graph en Neo4j** para detectar impacto cro
 ```
 ┌─────────────────────┐   HTTP    ┌─────────────────────┐
 │  Frontend           │──────────▶│  Backend            │
-│  Streamlit :8501    │           │  FastAPI :8000       │
+│  React/Nginx :8080  │           │  FastAPI :8000       │
 │  (UI + form)        │◀──────────│  (lógica + agentes)  │
 └─────────────────────┘           └──────────┬──────────┘
                                              │ Bolt
@@ -19,7 +19,7 @@ Opcionalmente, integra un **Knowledge Graph en Neo4j** para detectar impacto cro
                                    └─────────────────────┘
 ```
 
-- **Frontend** (`frontend/`): UI Streamlit pura. Envía credenciales y datos del PR al backend via HTTP. Sin lógica de dominio.
+- **Frontend** (`frontend/`): UI React/Vite servida como estáticos por Nginx. Envía credenciales y datos del PR al backend via HTTP. Sin lógica de dominio.
 - **Backend** (`backend/`): API REST FastAPI. Orquesta el agente LLM, consulta el Knowledge Graph y postea comentarios en GitHub.
 - **src/**: Capa de dominio compartida (reviewer, knowledge graph). Importada directamente por el backend.
 
@@ -52,10 +52,19 @@ cp .env.example .env
 # 3. Levantar todos los servicios (backend + frontend + neo4j)
 docker compose up --build
 
-# Frontend disponible en: http://localhost:8501
+# Frontend disponible en: http://localhost:8080
 # Backend API en:         http://localhost:8000
 # Neo4j Browser en:       http://localhost:7474
 ```
+
+El frontend no requiere Node/Vite instalados en el host. Para verificarlo con Docker:
+
+```bash
+docker compose -f docker-compose.frontend-dev.yml run --rm frontend-test
+docker compose -f docker-compose.frontend-dev.yml run --rm frontend-build
+```
+
+Las API keys del proveedor LLM y el token de GitHub se introducen en la UI y se mantienen solo en memoria del navegador; no se persisten en `localStorage`, `sessionStorage` ni cookies.
 
 ## Configuración
 
@@ -84,7 +93,9 @@ HUGGING_FACE_API_URL=https://router.huggingface.co/v1
 OLLAMA_API_URL=http://localhost:11434/v1   # solo si usás el provider ollama
 
 # CORS — URL del frontend
-CORS_ORIGINS=http://localhost:8501
+CORS_ORIGINS=http://localhost:8080,http://localhost:5173
+# Docker Compose local usa LOCAL_CORS_ORIGINS si necesitás override sin tocar CORS_ORIGINS
+LOCAL_CORS_ORIGINS=http://localhost:8080,http://localhost:5173
 
 # Logging
 LOG_LEVEL=INFO                             # DEBUG | INFO | WARNING | ERROR | CRITICAL
@@ -95,7 +106,7 @@ OPIK_PROJECT_NAME=pr-reviewer              # nombre del proyecto en Opik
 OPIK_WORKSPACE=                            # workspace de Opik (opcional)
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
-BACKEND_URL=http://backend:8000            # en docker-compose usa el nombre del servicio
+VITE_API_BASE_URL=http://localhost:8000      # URL pública del backend para el navegador
 ```
 
 El token de GitHub necesita permisos `repo` (repositorios privados) o `public_repo` (públicos).
@@ -121,10 +132,10 @@ Los templates pueden incluir JSON o llaves literales sin escaparlas. El renderiz
 
 ## Uso via interfaz web
 
-Abre `http://localhost:8501` en el navegador:
+Abre `http://localhost:8080` en el navegador:
 
-1. **Sidebar**: selecciona el proveedor LLM e introduce tu API key
-2. **Formulario**: introduce el owner, repo y número de PR de GitHub
+1. **Proveedor**: selecciona el proveedor LLM e introduce tu API key
+2. **Formulario**: introduce el owner/repo, número de PR y token de GitHub
 3. **Revisar**: el backend analiza el diff, consulta el grafo y devuelve el resultado
 4. Los bugs detectados se postean automáticamente como comentarios inline en el PR
 
@@ -207,7 +218,7 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 1. **Render → New → Blueprint** → conectar este repositorio
 2. Render crea automáticamente dos servicios Docker (`pr-reviewer-api` y `pr-reviewer-web`)
 3. Completar las env vars secretas en el dashboard de Render
-4. Actualizar `CORS_ORIGINS` (backend) y `BACKEND_URL` (frontend) con las URLs públicas asignadas
+4. Actualizar `CORS_ORIGINS` (backend) y `VITE_API_BASE_URL` (frontend) con las URLs públicas asignadas
 5. _(Opcional)_ Configurar webhook en GitHub → `https://<backend>.onrender.com/api/v1/webhook/github`
 
 > El endpoint del webhook valida la firma HMAC-SHA256. Si `GITHUB_WEBHOOK_SECRET` no está configurado, devuelve `501 Not Implemented` (seguro por defecto).
@@ -226,10 +237,11 @@ El repositorio incluye `render.yaml` para despliegue con un solo click:
 │   ├── services/reviewer.py     # Orquestador: adapter entre API y domain layer
 │   ├── Dockerfile               # Imagen Docker del backend
 │   └── pyproject.toml           # Dependencias del backend
-├── frontend/                    # Servicio frontend (Streamlit)
-│   ├── streamlit_app.py         # UI: form + httpx calls al backend
-│   ├── Dockerfile               # Imagen Docker del frontend
-│   └── pyproject.toml           # Dependencias del frontend (streamlit + httpx)
+├── frontend/                    # Servicio frontend (React/Vite + Nginx)
+│   ├── src/                     # UI: form, API client y renderizado de resultados
+│   ├── Dockerfile               # Build Vite + runtime Nginx
+│   ├── nginx.conf               # Static serving + SPA fallback
+│   └── package.json             # Dependencias del frontend React
 ├── prompts/
 │   ├── bug_reviewer_instructions.txt               # Fallback Opik: reviewer de bugs
 │   ├── bug_review_team_leader.txt                  # Fallback Opik: líder del equipo de bugs

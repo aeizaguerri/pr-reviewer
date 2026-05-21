@@ -7,7 +7,7 @@ stack:
   language: python
   python_version: ">=3.14"
   backend: fastapi
-  frontend: streamlit
+  frontend: react
   agent_framework: agno
   database: neo4j
   other:
