@@ -6,6 +6,7 @@ export type FindingInput = {
 	severity?: string;
 	description?: string;
 	suggestion?: string;
+	source?: string;
 	category?: string | null;
 };
 
@@ -26,6 +27,19 @@ export type ReviewDisplay = {
 	bugRows: FindingRow[];
 	securityRows: FindingRow[];
 	impactWarnings: ImpactWarning[];
+};
+
+export type FileFindingGroup = {
+	key: string;
+	fileLabel: string;
+	findings: FindingInput[];
+	counts: Record<string, number>;
+	firstLine: number | null;
+};
+
+export type ReviewWorkspaceDisplay = {
+	groups: FileFindingGroup[];
+	selectedFileKey: string | null;
 };
 
 type ReviewDisplayInput = Partial<Omit<ReviewResponse, "bugs">> & {
@@ -75,6 +89,55 @@ export function formatReviewHealth(
 	return {
 		status: health.status ?? "complete",
 		warnings: [...(health.warnings ?? [])],
+	};
+}
+
+export function groupFindingsByFile(findings: FindingInput[]): FileFindingGroup[] {
+	const map = new Map<string, FindingInput[]>();
+
+	for (const finding of findings) {
+		const rawFile = finding.file ?? "";
+		const key = rawFile.trim() === "" ? "__unknown_file__" : rawFile;
+		const existing = map.get(key) ?? [];
+		map.set(key, [...existing, finding]);
+	}
+
+	const entries = Array.from(map.entries());
+	entries.sort(([a], [b]) => {
+		if (a === "__unknown_file__") return 1;
+		if (b === "__unknown_file__") return -1;
+		return a.localeCompare(b);
+	});
+
+	return entries.map(([key, groupFindings]) => {
+		const counts: Record<string, number> = {};
+		let firstLine: number | null = null;
+		for (const f of groupFindings) {
+			const sev = f.severity ?? "Unknown";
+			counts[sev] = (counts[sev] ?? 0) + 1;
+			if (typeof f.line === "number") {
+				if (firstLine === null || f.line < firstLine) {
+					firstLine = f.line;
+				}
+			}
+		}
+		return {
+			key,
+			fileLabel: key === "__unknown_file__" ? "Unknown file" : key,
+			findings: groupFindings,
+			counts,
+			firstLine,
+		};
+	});
+}
+
+export function buildReviewWorkspaceDisplay(
+	review: { bugs?: FindingInput[] },
+): ReviewWorkspaceDisplay {
+	const groups = groupFindingsByFile(review.bugs ?? []);
+	return {
+		groups,
+		selectedFileKey: groups.length > 0 ? groups[0].key : null,
 	};
 }
 

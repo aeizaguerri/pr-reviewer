@@ -17,7 +17,7 @@ describe("App smoke UI", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("renders the app shell, loaded providers, and review form", async () => {
+	it("renders the workspace shell, loaded providers, and review form", async () => {
 		vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test");
 		vi.stubGlobal(
 			"fetch",
@@ -41,10 +41,10 @@ describe("App smoke UI", () => {
 
 		render(<App />);
 
+		expect(screen.queryByText(/react frontend scaffold/i)).not.toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: /pr code reviewer/i }),
+			screen.getByRole("button", { name: /collapse sidebar/i }),
 		).toBeInTheDocument();
-		expect(screen.getByText(/react frontend scaffold/i)).toBeInTheDocument();
 		await waitFor(() =>
 			expect(screen.getByText(/backend: ok/i)).toBeInTheDocument(),
 		);

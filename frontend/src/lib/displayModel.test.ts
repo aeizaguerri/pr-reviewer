@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildReviewDisplay,
+	buildReviewWorkspaceDisplay,
 	formatBugRow,
 	formatReviewHealth,
 	groupFindingsByCategory,
+	groupFindingsByFile,
 } from "./displayModel";
 
 describe("groupFindingsByCategory", () => {
@@ -162,5 +164,105 @@ describe("buildReviewDisplay", () => {
 		});
 
 		expect(display.health).toBeNull();
+	});
+});
+
+describe("groupFindingsByFile", () => {
+	it("groups flat findings by file path", () => {
+		const groups = groupFindingsByFile([
+			{ file: "src/a.py", line: 1, severity: "major", description: "d1" },
+			{ file: "src/b.py", line: 2, severity: "critical", description: "d2" },
+			{ file: "src/a.py", line: 3, severity: "minor", description: "d3" },
+		]);
+
+		expect(groups).toHaveLength(2);
+		expect(groups[0].key).toBe("src/a.py");
+		expect(groups[0].fileLabel).toBe("src/a.py");
+		expect(groups[0].findings).toHaveLength(2);
+		expect(groups[1].key).toBe("src/b.py");
+		expect(groups[1].findings).toHaveLength(1);
+	});
+
+	it("places findings with missing or blank file into Unknown file group", () => {
+		const groups = groupFindingsByFile([
+			{ file: "", line: 1, severity: "major", description: "d1" },
+			{ line: 2, severity: "critical", description: "d2" },
+			{ file: "src/a.py", line: 3, severity: "minor", description: "d3" },
+		]);
+
+		const unknownGroup = groups.find((g) => g.key === "__unknown_file__");
+		expect(unknownGroup).toBeDefined();
+		expect(unknownGroup!.fileLabel).toBe("Unknown file");
+		expect(unknownGroup!.findings).toHaveLength(2);
+	});
+
+	it("sorts groups by file path with unknown last", () => {
+		const groups = groupFindingsByFile([
+			{ file: "z.py", line: 1, severity: "major" },
+			{ file: "a.py", line: 2, severity: "minor" },
+			{ line: 3, severity: "critical" },
+		]);
+
+		expect(groups.map((g) => g.key)).toEqual(["a.py", "z.py", "__unknown_file__"]);
+	});
+
+	it("computes counts and firstLine per group", () => {
+		const groups = groupFindingsByFile([
+			{ file: "a.py", line: 10, severity: "major" },
+			{ file: "a.py", line: 5, severity: "major" },
+			{ file: "a.py", line: 20, severity: "critical" },
+		]);
+
+		expect(groups[0].counts).toEqual({ major: 2, critical: 1 });
+		expect(groups[0].firstLine).toBe(5);
+	});
+
+	it("returns empty array for empty findings", () => {
+		expect(groupFindingsByFile([])).toEqual([]);
+	});
+});
+
+describe("buildReviewWorkspaceDisplay", () => {
+	it("returns sorted groups and default selected key from first group", () => {
+		const review = {
+			bugs: [
+				{ file: "b.py", line: 1, severity: "major", description: "d1", suggestion: "s1", category: "bug", source: "" },
+				{ file: "a.py", line: 2, severity: "critical", description: "d2", suggestion: "s2", category: "bug", source: "" },
+			],
+		};
+
+		const display = buildReviewWorkspaceDisplay(review);
+
+		expect(display.groups.map((g) => g.key)).toEqual(["a.py", "b.py"]);
+		expect(display.selectedFileKey).toBe("a.py");
+	});
+
+	it("selects null when there are no findings", () => {
+		const display = buildReviewWorkspaceDisplay({
+			bugs: [],
+		});
+
+		expect(display.groups).toEqual([]);
+		expect(display.selectedFileKey).toBeNull();
+	});
+
+	it("handles a single finding correctly", () => {
+		const display = buildReviewWorkspaceDisplay({
+			bugs: [{ file: "x.py", line: 5, severity: "low", description: "d", suggestion: "s", category: "bug", source: "" }],
+		});
+
+		expect(display.groups).toHaveLength(1);
+		expect(display.groups[0].key).toBe("x.py");
+		expect(display.selectedFileKey).toBe("x.py");
+	});
+
+	it("uses unknown file fallback when no file is provided", () => {
+		const display = buildReviewWorkspaceDisplay({
+			bugs: [{ line: 1, severity: "high", description: "d", suggestion: "s", category: "bug", source: "" }],
+		});
+
+		expect(display.groups[0].key).toBe("__unknown_file__");
+		expect(display.groups[0].fileLabel).toBe("Unknown file");
+		expect(display.selectedFileKey).toBe("__unknown_file__");
 	});
 });

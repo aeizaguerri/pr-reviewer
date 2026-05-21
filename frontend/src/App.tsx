@@ -3,7 +3,7 @@ import { getHealth, getProviders } from "./api/client";
 import { AppError } from "./api/errors";
 import type { HealthResponse, ProviderInfo, ReviewResponse } from "./api/types";
 import { ReviewForm } from "./components/ReviewForm";
-import { ReviewResults } from "./components/ReviewResults";
+import { WorkspaceShell } from "./components/WorkspaceShell";
 import "./styles/global.css";
 
 type AsyncState<T> =
@@ -20,14 +20,14 @@ function errorMessage(error: unknown): string {
 
 function BackendStatus({ state }: { state: AsyncState<HealthResponse> }) {
 	if (state.status === "loading") {
-		return <p>Backend: checking...</p>;
+		return <p className="status-line">Checking backend...</p>;
 	}
 
 	if (state.status === "error") {
-		return <p role="status">Backend unavailable — {state.message}</p>;
+		return <p className="status-line" role="status">Backend unavailable — {state.message}</p>;
 	}
 
-	return <p>Backend: {state.data.status}</p>;
+	return <p className="status-line">Backend: {state.data.status}</p>;
 }
 
 function ProviderList({ state }: { state: AsyncState<ProviderInfo[]> }) {
@@ -44,10 +44,11 @@ function ProviderList({ state }: { state: AsyncState<ProviderInfo[]> }) {
 	}
 
 	return (
-		<ul aria-label="Available providers">
+		<ul className="provider-list" aria-label="Available providers">
 			{state.data.map((provider) => (
 				<li key={provider.key}>
-					<strong>{provider.key}</strong> — {provider.description}
+					<span className="provider-key">{provider.key}</span>
+					<span className="provider-description">{provider.description}</span>
 				</li>
 			))}
 		</ul>
@@ -96,41 +97,46 @@ export default function App() {
 	}, []);
 
 	return (
-		<main className="app-shell">
-			<section className="hero-card" aria-labelledby="app-title">
-				<p className="eyebrow">React frontend scaffold</p>
-				<h1 id="app-title">PR Code Reviewer</h1>
-				<p>
-					Docker-first Vite + React + TypeScript foundation for the production
-					frontend.
-				</p>
-			</section>
+		<WorkspaceShell
+			latestReview={latestReview}
+				sidebar={
+					<>
+						<section className="sidebar-section" aria-label="Backend and provider status">
+							<div className="sidebar-section-header">
+								<h2>Backend status</h2>
+							</div>
+							<div className="sidebar-section-body">
+								<BackendStatus state={health} />
+							</div>
+						</section>
 
-			<section className="status-grid" aria-label="Backend and provider status">
-				<article className="panel">
-					<h2>Backend status</h2>
-					<BackendStatus state={health} />
-				</article>
+						<section className="sidebar-section" aria-label="Providers">
+							<div className="sidebar-section-header">
+								<h2>Providers</h2>
+							</div>
+							<div className="sidebar-section-body">
+								<ProviderList state={providers} />
+							</div>
+						</section>
 
-				<article className="panel">
-					<h2>Providers</h2>
-					<ProviderList state={providers} />
-				</article>
-			</section>
-
-			{providers.status === "success" ? (
-				<section
-					className="panel review-panel"
-					aria-labelledby="review-form-title"
-				>
-					<h2 id="review-form-title">Run a PR review</h2>
-					<ReviewForm
-						providers={providers.data}
-						onReviewComplete={setLatestReview}
-					/>
-					{latestReview ? <ReviewResults review={latestReview} /> : null}
-				</section>
-			) : null}
-		</main>
+						{providers.status === "success" ? (
+							<section
+								className="sidebar-section"
+								aria-labelledby="review-form-title"
+							>
+								<div className="sidebar-section-header">
+									<h2 id="review-form-title">Run a PR review</h2>
+								</div>
+								<div className="sidebar-section-body">
+									<ReviewForm
+										providers={providers.data}
+										onReviewComplete={setLatestReview}
+									/>
+								</div>
+							</section>
+						) : null}
+					</>
+				}
+		/>
 	);
 }
