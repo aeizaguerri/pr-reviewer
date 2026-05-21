@@ -35,7 +35,7 @@ class TestPostingInvariant:
 
     def _make_bug(self) -> BugReport:
         return BugReport(
-            file="src/a.py",
+            file="file.py",
             line=10,
             severity="major",
             description="bug",

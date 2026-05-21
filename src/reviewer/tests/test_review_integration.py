@@ -48,7 +48,16 @@ def _make_impact_warning() -> ImpactWarning:
     )
 
 
-FAKE_DIFF = "### src/contracts/order_created.py\n@@ -1,3 +1,4 @@\n-order_id: str\n+order_id: int\n"
+FAKE_DIFF = (
+    "### src/contracts/order_created.py\n"
+    "@@ -1,3 +1,4 @@\n"
+    "-order_id: str\n"
+    "+order_id: int\n"
+    "### src/main.py\n"
+    "@@ -1,2 +1,2 @@\n"
+    "-unused = True\n"
+    "+unused = False\n"
+)
 FAKE_HEAD_SHA = "abc123"
 FAKE_PR_TITLE = "chore: update order schema"
 
