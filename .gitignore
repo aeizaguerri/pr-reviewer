@@ -46,3 +46,4 @@ uv.lock
 # Local analysis caches
 .pi-lens/
 **/.pi-lens/
+.agents/
