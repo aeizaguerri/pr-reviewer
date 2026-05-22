@@ -88,9 +88,10 @@ class TestMultiAgentPromptConstants:
         )
         lower = prompt.lower()
 
-        assert "only exploitable" in lower
-        assert "do not report general correctness bugs" in lower
-        assert "sorting/order bugs" in lower
+        assert "exploitable" in lower
+        assert "realistic" in lower
+        assert "general correctness bugs" in lower
+        assert "validation issues without attacker impact" in lower
         assert "attacker" in lower
 
 
