@@ -15,6 +15,12 @@ def anyio_backend():
 
 class TestBugReviewers:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
+    _ROLE_CONFIGS = {
+        "bug": _PROVIDER_CONFIG,
+        "security": _PROVIDER_CONFIG,
+        "cross_repo": _PROVIDER_CONFIG,
+        "leader": _PROVIDER_CONFIG,
+    }
 
     def _make_context(self, shared_prompt: str = "test prompt") -> ReviewContext:
         return ReviewContext(
@@ -63,7 +69,7 @@ class TestBugReviewers:
         mock_msg_b.content = json.dumps({"bugs": []})
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
-        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+        await _run_bug_reviewers(ctx, self._ROLE_CONFIGS, supports_structured_output=True)
 
         # Verify both agents were created with the same instructions
         assert mock_agent_cls.call_count == 2
@@ -98,7 +104,7 @@ class TestBugReviewers:
         mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
-        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+        await _run_bug_reviewers(ctx, self._ROLE_CONFIGS, supports_structured_output=True)
 
         mock_render_prompt.assert_called_once_with(
             "bug_review_team_leader", shared_prompt=shared_prompt
@@ -130,7 +136,7 @@ class TestBugReviewers:
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
         result_a, result_b = await _run_bug_reviewers(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True
         )
 
         # Results should be independent SpecialistBugOutput instances
@@ -163,7 +169,7 @@ class TestBugReviewers:
         mock_msg_b.content = json.dumps({"bugs": []})
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
-        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+        await _run_bug_reviewers(ctx, self._ROLE_CONFIGS, supports_structured_output=True)
 
         # Verify OpenAILike was called with the same config for both agents.
         # The team leader also gets an explicit model now; that propagation is
@@ -191,7 +197,7 @@ class TestBugReviewers:
         mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
-        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+        await _run_bug_reviewers(ctx, self._ROLE_CONFIGS, supports_structured_output=True)
 
         assert mock_openai_like.call_count == 3
         team_model_call = mock_openai_like.call_args_list[2]
@@ -225,7 +231,7 @@ class TestBugReviewers:
         mock_msg_b.content = json.dumps({"bugs": []})
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
-        await _run_bug_reviewers(ctx, self._PROVIDER_CONFIG, supports_structured_output=True)
+        await _run_bug_reviewers(ctx, self._ROLE_CONFIGS, supports_structured_output=True)
 
         for call in mock_agent_cls.call_args_list:
             assert "github_token" not in str(call)
@@ -257,7 +263,7 @@ class TestBugReviewers:
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
         result_a, result_b = await _run_bug_reviewers(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True
         )
 
         assert len(result_a.bugs) == 1
@@ -290,7 +296,7 @@ class TestBugReviewers:
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
         result_a, result_b = await _run_bug_reviewers(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True
         )
 
         assert len(result_a.bugs) == 0
@@ -325,7 +331,7 @@ class TestBugReviewers:
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
 
         result_a, result_b = await _run_bug_reviewers(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True
         )
 
         assert result_a.provider == "bug-reviewer-a"
@@ -356,7 +362,7 @@ class TestBugReviewers:
         mock_team.run.return_value = MagicMock(member_responses=[mock_msg_b])
 
         result_a, result_b = await _run_bug_reviewers(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True
         )
 
         assert result_a.provider == "bug-reviewer-a"
@@ -382,7 +388,7 @@ class TestBugReviewers:
         mock_team.run.return_value = MagicMock(member_responses=[])
 
         result_a, result_b = await _run_bug_reviewers(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True
         )
 
         assert result_a.provider == "bug-reviewer-a"

@@ -19,9 +19,6 @@ export type ReviewRequest = {
   owner: string;
   repo: string;
   pr_number: number;
-  provider: string;
-  model: string;
-  base_url_override: string;
 };
 
 export type BugReport = {

@@ -105,3 +105,18 @@ def get_all_providers() -> list[ProviderInfo]:
         )
         for key, info in PROVIDERS.items()
     ]
+
+
+def resolve_public_hf_role_configs(api_key: str) -> dict[str, tuple[str, str, str]]:
+    """Resolve per-role configs for the public Hugging Face review path.
+
+    Delegates to BackendConfig.resolve_role_configs() so env-driven model
+    overrides and DEFAULT_MODEL fallback are applied consistently.
+
+    Args:
+        api_key: The request-scoped Hugging Face API key.
+
+    Returns:
+        dict mapping role name -> (model_id, base_url, api_key).
+    """
+    return BackendConfig.resolve_role_configs(api_key)

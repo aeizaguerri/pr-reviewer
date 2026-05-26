@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { getHealth, getProviders } from "./api/client";
+import { getHealth } from "./api/client";
 import { AppError } from "./api/errors";
-import type { HealthResponse, ProviderInfo, ReviewResponse } from "./api/types";
+import type { HealthResponse, ReviewResponse } from "./api/types";
 import { ReviewForm } from "./components/ReviewForm";
 import { WorkspaceShell } from "./components/WorkspaceShell";
 import "./styles/global.css";
@@ -30,36 +30,8 @@ function BackendStatus({ state }: { state: AsyncState<HealthResponse> }) {
 	return <p className="status-line">Backend: {state.data.status}</p>;
 }
 
-function ProviderList({ state }: { state: AsyncState<ProviderInfo[]> }) {
-	if (state.status === "loading") {
-		return <p>Loading providers...</p>;
-	}
-
-	if (state.status === "error") {
-		return <p role="status">Providers unavailable — {state.message}</p>;
-	}
-
-	if (state.data.length === 0) {
-		return <p>No providers available yet.</p>;
-	}
-
-	return (
-		<ul className="provider-list" aria-label="Available providers">
-			{state.data.map((provider) => (
-				<li key={provider.key}>
-					<span className="provider-key">{provider.key}</span>
-					<span className="provider-description">{provider.description}</span>
-				</li>
-			))}
-		</ul>
-	);
-}
-
 export default function App() {
 	const [health, setHealth] = useState<AsyncState<HealthResponse>>({
-		status: "loading",
-	});
-	const [providers, setProviders] = useState<AsyncState<ProviderInfo[]>>({
 		status: "loading",
 	});
 	const [latestReview, setLatestReview] = useState<ReviewResponse | null>(null);
@@ -79,18 +51,6 @@ export default function App() {
 				}
 			});
 
-		getProviders()
-			.then((data) => {
-				if (active) {
-					setProviders({ status: "success", data: data.providers });
-				}
-			})
-			.catch((error: unknown) => {
-				if (active) {
-					setProviders({ status: "error", message: errorMessage(error) });
-				}
-			});
-
 		return () => {
 			active = false;
 		};
@@ -99,44 +59,32 @@ export default function App() {
 	return (
 		<WorkspaceShell
 			latestReview={latestReview}
-				sidebar={
-					<>
-						<section className="sidebar-section" aria-label="Backend and provider status">
+			sidebar={
+				<>
+					<section className="sidebar-section" aria-label="Backend status">
+						<div className="sidebar-section-header">
+							<h2>Backend status</h2>
+						</div>
+						<div className="sidebar-section-body">
+							<BackendStatus state={health} />
+						</div>
+					</section>
+
+					{health.status === "success" ? (
+						<section
+							className="sidebar-section"
+							aria-labelledby="review-form-title"
+						>
 							<div className="sidebar-section-header">
-								<h2>Backend status</h2>
+								<h2 id="review-form-title">Run a PR review</h2>
 							</div>
 							<div className="sidebar-section-body">
-								<BackendStatus state={health} />
+								<ReviewForm onReviewComplete={setLatestReview} />
 							</div>
 						</section>
-
-						<section className="sidebar-section" aria-label="Providers">
-							<div className="sidebar-section-header">
-								<h2>Providers</h2>
-							</div>
-							<div className="sidebar-section-body">
-								<ProviderList state={providers} />
-							</div>
-						</section>
-
-						{providers.status === "success" ? (
-							<section
-								className="sidebar-section"
-								aria-labelledby="review-form-title"
-							>
-								<div className="sidebar-section-header">
-									<h2 id="review-form-title">Run a PR review</h2>
-								</div>
-								<div className="sidebar-section-body">
-									<ReviewForm
-										providers={providers.data}
-										onReviewComplete={setLatestReview}
-									/>
-								</div>
-							</section>
-						) : null}
-					</>
-				}
+					) : null}
+				</>
+			}
 		/>
 	);
 }

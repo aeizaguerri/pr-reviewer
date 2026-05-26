@@ -217,11 +217,19 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
     provider_config = Config.get_model_config()
     supports_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
 
+    # Backward-compatible single-config fan-out
+    role_configs = {
+        "bug": provider_config,
+        "security": provider_config,
+        "cross_repo": provider_config,
+        "leader": provider_config,
+    }
+
     return run_multi_agent_review(
         owner=owner,
         repo=repo,
         pr_number=pr_number,
-        provider_config=provider_config,
+        role_configs=role_configs,
         supports_structured_output=supports_structured,
     )
 
@@ -234,6 +242,7 @@ def review_pr_with_config(
     provider_config: tuple[str, str, str],
     github_token: str = "",
     supports_structured_output: bool = True,
+    role_configs: dict[str, tuple[str, str, str]] | None = None,
 ) -> ReviewOutput:
     """Run the reviewer with explicit provider config (no env var reads).
 
@@ -244,9 +253,12 @@ def review_pr_with_config(
         owner: Repository owner (user or org).
         repo: Repository name.
         pr_number: Pull request number.
-        provider_config: Tuple of (model_id, base_url, api_key).
+        provider_config: Tuple of (model_id, base_url, api_key). Used when
+            role_configs is not provided.
         github_token: GitHub personal access token.
         supports_structured_output: Whether the provider supports structured outputs.
+        role_configs: Optional per-role config dict. When provided, it overrides
+            the uniform provider_config fan-out.
 
     Returns:
         ReviewOutput with bugs, summary, and approval status.
@@ -254,11 +266,20 @@ def review_pr_with_config(
     # Local import avoids circular dependency: orchestrator imports helpers from agent.
     from src.reviewer.orchestrator import run_multi_agent_review
 
+    if role_configs is None:
+        # Backward-compatible single-config fan-out into per-role dict
+        role_configs = {
+            "bug": provider_config,
+            "security": provider_config,
+            "cross_repo": provider_config,
+            "leader": provider_config,
+        }
+
     return run_multi_agent_review(
         owner=owner,
         repo=repo,
         pr_number=pr_number,
-        provider_config=provider_config,
+        role_configs=role_configs,
         github_token=github_token,
         supports_structured_output=supports_structured_output,
     )

@@ -185,29 +185,31 @@ def _iter_team_messages(run: Any) -> Iterable[Any]:
 
 async def _run_bug_reviewers(
     ctx: ReviewContext,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
 ) -> tuple[SpecialistBugOutput, SpecialistBugOutput]:
     """Run blind Bug Reviewer A/B using an Agno Team broadcast."""
     schema = SpecialistBugPayload if supports_structured_output else None
-    model_id, base_url, api_key = provider_config
+    bug_config = role_configs["bug"]
+    leader_config = role_configs["leader"]
+    leader_model_id, leader_base_url, leader_api_key = leader_config
     agent_a = _build_agent(
         agent_id="bug-reviewer-a",
         instructions=BUG_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=bug_config,
         output_schema=schema,
     )
     agent_b = _build_agent(
         agent_id="bug-reviewer-b",
         instructions=BUG_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=bug_config,
         output_schema=schema,
     )
 
     leader_prompt = render_prompt("bug_review_team_leader", shared_prompt=ctx.shared_prompt)
     team = Team(
         id="bug-review-team",
-        model=OpenAILike(id=model_id, base_url=base_url, api_key=api_key),
+        model=OpenAILike(id=leader_model_id, base_url=leader_base_url, api_key=leader_api_key),
         mode="broadcast",
         members=[agent_a, agent_b],
         instructions=leader_prompt,
@@ -251,7 +253,7 @@ async def _run_bug_reviewers(
 
 async def _run_security_reviewer(
     ctx: ReviewContext,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
     timeout: int,
 ) -> SpecialistSecurityOutput | SpecialistFailure:
@@ -259,7 +261,7 @@ async def _run_security_reviewer(
     agent = _build_agent(
         agent_id="security-reviewer",
         instructions=SECURITY_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=role_configs["security"],
         output_schema=SpecialistSecurityPayload if supports_structured_output else None,
     )
     try:
@@ -275,7 +277,7 @@ async def _run_security_reviewer(
 
 async def _run_cross_repo_reviewer(
     ctx: ReviewContext,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
     timeout: int,
 ) -> SpecialistImpactOutput | SpecialistFailure:
@@ -286,7 +288,7 @@ async def _run_cross_repo_reviewer(
     agent = _build_agent(
         agent_id="cross-repo-impact-reviewer",
         instructions=CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=role_configs["cross_repo"],
         output_schema=SpecialistImpactPayload if supports_structured_output else None,
     )
     try:
@@ -618,7 +620,7 @@ async def arun_multi_agent_review(
     owner: str,
     repo: str,
     pr_number: int,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     github_token: str = "",
     supports_structured_output: bool = True,
 ) -> ReviewOutput:
@@ -641,12 +643,25 @@ async def arun_multi_agent_review(
     timeout = Config.REVIEW_SPECIALIST_TIMEOUT_SECONDS
     logger.debug("Specialist timeout configured: %s seconds", timeout)
 
+    # Log role-to-model resolution without exposing secrets
+    for role, (model_id, base_url, _api_key) in role_configs.items():
+        logger.info(
+            "Review role %s -> model=%s base_url_host=%s",
+            role,
+            model_id,
+            base_url,
+        )
+
     bug_result, security_result, cross_repo_result = await asyncio.gather(
         asyncio.wait_for(
-            _run_bug_reviewers(ctx, provider_config, supports_structured_output), timeout=timeout
+            _run_bug_reviewers(ctx, role_configs, supports_structured_output), timeout=timeout
         ),
-        _run_security_reviewer(ctx, provider_config, supports_structured_output, timeout=timeout),
-        _run_cross_repo_reviewer(ctx, provider_config, supports_structured_output, timeout=timeout),
+        asyncio.wait_for(
+            _run_security_reviewer(ctx, role_configs, supports_structured_output, timeout=timeout), timeout=timeout
+        ),
+        asyncio.wait_for(
+            _run_cross_repo_reviewer(ctx, role_configs, supports_structured_output, timeout=timeout), timeout=timeout
+        ),
         return_exceptions=True,
     )
 
@@ -776,7 +791,7 @@ def run_multi_agent_review(
     owner: str,
     repo: str,
     pr_number: int,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     github_token: str = "",
     supports_structured_output: bool = True,
 ) -> ReviewOutput:
@@ -786,7 +801,7 @@ def run_multi_agent_review(
             owner=owner,
             repo=repo,
             pr_number=pr_number,
-            provider_config=provider_config,
+            role_configs=role_configs,
             github_token=github_token,
             supports_structured_output=supports_structured_output,
         )

@@ -1,30 +1,23 @@
 import { type FormEvent, useMemo, useState } from "react";
-import type { ProviderInfo, ReviewResponse } from "../api/types";
+import type { ReviewResponse } from "../api/types";
 import { type ReviewFormInput, validateReviewForm } from "../lib/validation";
 import { useReviewSubmission } from "../hooks/useReviewSubmission";
 
 type ReviewFormProps = {
-	providers: ProviderInfo[];
 	onReviewComplete: (review: ReviewResponse) => void;
 };
 
 const emptyInput: ReviewFormInput = {
 	repoSlug: "",
 	prNumber: "",
-	provider: "",
 	providerApiKey: "",
 	githubToken: "",
-	model: "",
-	baseUrlOverride: "",
 };
 
-export function ReviewForm({ providers, onReviewComplete }: ReviewFormProps) {
+export function ReviewForm({ onReviewComplete }: ReviewFormProps) {
 	const [input, setInput] = useState<ReviewFormInput>(emptyInput);
 	const { state, runReview } = useReviewSubmission(onReviewComplete);
 
-	const selectedProvider = providers.find(
-		(provider) => provider.key === input.provider,
-	);
 	const validation = useMemo(() => validateReviewForm(input), [input]);
 	const errors = validation.valid ? {} : validation.errors;
 	const isLoading = state.status === "loading";
@@ -50,31 +43,6 @@ export function ReviewForm({ providers, onReviewComplete }: ReviewFormProps) {
 			onSubmit={submit}
 			noValidate
 		>
-			<div className="field-group">
-				<label htmlFor="provider">Provider</label>
-				<select
-					id="provider"
-					value={input.provider}
-					onChange={(event) => updateField("provider", event.target.value)}
-					aria-invalid={Boolean(errors.provider)}
-				>
-					<option value="">Choose a provider</option>
-					{providers.map((provider) => (
-						<option key={provider.key} value={provider.key}>
-							{provider.key} — {provider.description}
-						</option>
-					))}
-				</select>
-				{selectedProvider ? (
-					<p className="field-hint">
-						Default model: {selectedProvider.default_model}
-					</p>
-				) : null}
-				{errors.provider ? (
-					<p className="field-error">{errors.provider}</p>
-				) : null}
-			</div>
-
 			<div className="field-grid">
 				<div className="field-group">
 					<label htmlFor="repoSlug">Repository</label>
@@ -107,36 +75,12 @@ export function ReviewForm({ providers, onReviewComplete }: ReviewFormProps) {
 
 			<div className="field-grid">
 				<div className="field-group">
-					<label htmlFor="model">Model override</label>
-					<input
-						id="model"
-						value={input.model}
-						onChange={(event) => updateField("model", event.target.value)}
-					/>
-				</div>
-
-				<div className="field-group">
-					<label htmlFor="baseUrlOverride">Base URL override</label>
-					<input
-						id="baseUrlOverride"
-						value={input.baseUrlOverride}
-						onChange={(event) =>
-							updateField("baseUrlOverride", event.target.value)
-						}
-					/>
-				</div>
-			</div>
-
-			<div className="field-grid">
-				<div className="field-group">
-					<label htmlFor="providerApiKey">Provider API key</label>
+					<label htmlFor="providerApiKey">Hugging Face API key</label>
 					<input
 						id="providerApiKey"
 						type="password"
 						value={input.providerApiKey}
-						onChange={(event) =>
-							updateField("providerApiKey", event.target.value)
-						}
+						onChange={(event) => updateField("providerApiKey", event.target.value)}
 						aria-invalid={Boolean(errors.providerApiKey)}
 					/>
 					{errors.providerApiKey ? (
@@ -150,7 +94,9 @@ export function ReviewForm({ providers, onReviewComplete }: ReviewFormProps) {
 						id="githubToken"
 						type="password"
 						value={input.githubToken}
-						onChange={(event) => updateField("githubToken", event.target.value)}
+						onChange={(event) =>
+							updateField("githubToken", event.target.value)
+						}
 						aria-invalid={Boolean(errors.githubToken)}
 					/>
 					{errors.githubToken ? (

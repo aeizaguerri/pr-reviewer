@@ -160,6 +160,52 @@ class TestLegacyBodyFields:
 
 
 # ---------------------------------------------------------------------------
+# 4.6 — Body without provider/model/base_url fields → 200 (public HF path)
+# ---------------------------------------------------------------------------
+
+
+class TestMinimalBodyFields:
+    """Body omitting provider/model/base_url → public HF path still succeeds."""
+
+    @patch("backend.api.v1.routes.run_review", return_value=MOCK_REVIEW_RESPONSE)
+    def test_request_without_provider_model_fields_returns_200(self, mock_run, client):
+        minimal_body = {
+            "owner": "o",
+            "repo": "r",
+            "pr_number": 1,
+        }
+        response = client.post(
+            REVIEW_URL,
+            json=minimal_body,
+            headers={
+                "Authorization": "Bearer testkey",
+                "X-GitHub-Token": "ghtoken",
+            },
+        )
+        assert response.status_code == 200, (
+            f"Expected 200 for minimal body, got {response.status_code}: {response.text}"
+        )
+
+    @patch("backend.api.v1.routes.run_review")
+    def test_hf_key_from_authorization_header_is_used_for_agents(self, mock_run, client):
+        mock_run.return_value = MOCK_REVIEW_RESPONSE
+        minimal_body = {
+            "owner": "o",
+            "repo": "r",
+            "pr_number": 1,
+        }
+        client.post(
+            REVIEW_URL,
+            json=minimal_body,
+            headers={
+                "Authorization": "Bearer user-hf-key",
+                "X-GitHub-Token": "ghtoken",
+            },
+        )
+        mock_run.assert_called_once_with(ANY, api_key="user-hf-key", github_token="ghtoken")
+
+
+# ---------------------------------------------------------------------------
 # 3.1 — BugReportResponse includes category and source
 # ---------------------------------------------------------------------------
 

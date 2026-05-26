@@ -32,6 +32,12 @@ class Config:
     DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "moonshotai/Kimi-K2-Instruct")
     DEFAULT_PROVIDER: str = os.getenv("DEFAULT_PROVIDER", "huggingface")
 
+    # Per-role model overrides (public HF path)
+    REVIEW_BUG_MODEL: str = os.getenv("REVIEW_BUG_MODEL", "")
+    REVIEW_SECURITY_MODEL: str = os.getenv("REVIEW_SECURITY_MODEL", "")
+    REVIEW_CROSS_REPO_MODEL: str = os.getenv("REVIEW_CROSS_REPO_MODEL", "")
+    REVIEW_LEADER_MODEL: str = os.getenv("REVIEW_LEADER_MODEL", "")
+
     # Neo4j
     NEO4J_URI: str = os.getenv("NEO4J_URI", "neo4j://localhost:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
@@ -81,3 +87,22 @@ class Config:
     @classmethod
     def provider_supports_structured_output(cls, provider: str) -> bool:
         return provider.lower() in cls.STRUCTURED_OUTPUT_PROVIDERS
+
+    @classmethod
+    def resolve_role_configs(cls, api_key: str) -> dict[str, tuple[str, str, str]]:
+        """Resolve per-role (model_id, base_url, api_key) for the public HF path.
+
+        Args:
+            api_key: The request-scoped Hugging Face API key.
+
+        Returns:
+            dict mapping role name -> (model_id, base_url, api_key).
+            Role-specific env vars override DEFAULT_MODEL when set.
+        """
+        base_url = cls.HUGGING_FACE_API_URL
+        return {
+            "bug": (cls.REVIEW_BUG_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+            "security": (cls.REVIEW_SECURITY_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+            "cross_repo": (cls.REVIEW_CROSS_REPO_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+            "leader": (cls.REVIEW_LEADER_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+        }

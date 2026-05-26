@@ -17,6 +17,12 @@ def anyio_backend():
 
 class TestCrossRepoReviewer:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
+    _ROLE_CONFIGS = {
+        "bug": _PROVIDER_CONFIG,
+        "security": _PROVIDER_CONFIG,
+        "cross_repo": _PROVIDER_CONFIG,
+        "leader": _PROVIDER_CONFIG,
+    }
 
     def _make_context(
         self,
@@ -59,7 +65,7 @@ class TestCrossRepoReviewer:
         ctx = self._make_context(impact_result=None)
 
         result = await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistImpactOutput)
@@ -74,7 +80,7 @@ class TestCrossRepoReviewer:
         ctx = self._make_context(impact_result=ImpactResult(warnings=[], query_time_ms=0))
 
         result = await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistImpactOutput)
@@ -99,7 +105,7 @@ class TestCrossRepoReviewer:
         )
 
         await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         call = mock_agent_cls.call_args
@@ -140,7 +146,7 @@ class TestCrossRepoReviewer:
         )
 
         result = await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistImpactOutput)
@@ -179,7 +185,7 @@ class TestCrossRepoReviewer:
         )
 
         result = await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistImpactOutput)
@@ -200,7 +206,7 @@ class TestCrossRepoReviewer:
         mock_agent.arun = MagicMock(return_value=MagicMock(content="not valid json"))
 
         result = await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistFailure)
@@ -227,7 +233,7 @@ class TestCrossRepoReviewer:
         mock_agent.arun = slow_run
 
         result = await _run_cross_repo_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=0.1
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=0.1
         )
 
         assert isinstance(result, SpecialistFailure)

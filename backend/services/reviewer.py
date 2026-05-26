@@ -1,7 +1,9 @@
 """Review service — bridges the HTTP API to the core reviewer agent."""
 
 from src.reviewer.agent import review_pr_with_config
-from backend.core.providers import SUPPORTS_STRUCTURED_OUTPUT, build_provider_config
+from backend.core.providers import (
+    resolve_public_hf_role_configs,
+)
 from backend.models.schemas import (
     BugReportResponse,
     ImpactWarningResponse,
@@ -28,30 +30,28 @@ def run_review(req: ReviewRequest, api_key: str = "", github_token: str = "") ->
     """Execute a PR review using the given request configuration.
 
     Args:
-        req: ReviewRequest with provider, model, and PR details.
-        api_key: LLM provider API key (from Authorization header). Defaults to empty
-            string — the provider config falls back to env vars when empty.
+        req: ReviewRequest with PR details. Compatibility fields (provider, model,
+            base_url_override) are ignored for the public HF path.
+        api_key: Hugging Face API key (from Authorization header). Used for all
+            specialist agents in the public curated path.
         github_token: GitHub personal access token (from X-GitHub-Token header).
 
     Returns:
         ReviewResponse with summary, approval, bugs, and impact warnings.
     """
-    provider_config = build_provider_config(
-        req.provider,
-        req.model,
-        api_key,
-        req.base_url_override,
-    )
+    role_configs = resolve_public_hf_role_configs(api_key)
 
-    supports_structured_output = SUPPORTS_STRUCTURED_OUTPUT.get(req.provider.lower(), False)
+    # Public HF path does not support structured output
+    supports_structured_output = False
 
     result = review_pr_with_config(
         owner=req.owner,
         repo=req.repo,
         pr_number=req.pr_number,
-        provider_config=provider_config,
+        provider_config=role_configs["bug"],
         supports_structured_output=supports_structured_output,
         github_token=github_token,
+        role_configs=role_configs,
     )
 
     bugs = [

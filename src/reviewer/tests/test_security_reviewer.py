@@ -21,6 +21,12 @@ def anyio_backend():
 
 class TestSecurityReviewer:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
+    _ROLE_CONFIGS = {
+        "bug": _PROVIDER_CONFIG,
+        "security": _PROVIDER_CONFIG,
+        "cross_repo": _PROVIDER_CONFIG,
+        "leader": _PROVIDER_CONFIG,
+    }
 
     def _make_context(self, shared_prompt: str = "test prompt") -> ReviewContext:
         return ReviewContext(
@@ -59,7 +65,7 @@ class TestSecurityReviewer:
         mock_agent.arun = MagicMock(return_value=MagicMock(content=json.dumps({"bugs": []})))
 
         await _run_security_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         call = mock_agent_cls.call_args
@@ -84,7 +90,7 @@ class TestSecurityReviewer:
         mock_agent.arun = MagicMock(return_value=MagicMock(content=json.dumps({"bugs": []})))
 
         await _run_security_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         # Verify agent was created with security instructions
@@ -112,7 +118,7 @@ class TestSecurityReviewer:
         )
 
         result = await _run_security_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistSecurityOutput)
@@ -143,7 +149,7 @@ class TestSecurityReviewer:
         )
 
         result = await _run_security_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistSecurityOutput)
@@ -164,7 +170,7 @@ class TestSecurityReviewer:
         mock_agent.arun = MagicMock(return_value=MagicMock(content="not valid json"))
 
         result = await _run_security_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=120
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=120
         )
 
         assert isinstance(result, SpecialistFailure)
@@ -191,7 +197,7 @@ class TestSecurityReviewer:
         mock_agent.arun = slow_run
 
         result = await _run_security_reviewer(
-            ctx, self._PROVIDER_CONFIG, supports_structured_output=True, timeout=0.1
+            ctx, self._ROLE_CONFIGS, supports_structured_output=True, timeout=0.1
         )
 
         assert isinstance(result, SpecialistFailure)

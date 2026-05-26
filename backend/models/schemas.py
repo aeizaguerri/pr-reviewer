@@ -7,7 +7,8 @@ class ReviewRequest(BaseModel):
     owner: str
     repo: str
     pr_number: int = Field(..., gt=0)
-    provider: str = "cerebras"
+    # Compatibility fields — used by internal/CLI paths; the public UI omits them.
+    provider: str = "huggingface"
     model: str = ""
     base_url_override: str = ""
 
