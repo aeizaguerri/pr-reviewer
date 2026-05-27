@@ -9,11 +9,10 @@ from src.knowledge.models import ImpactResult, ImpactWarning
 from src.reviewer.models import ReviewContext, SpecialistFailure, SpecialistImpactOutput
 
 
-
-
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
 
 class TestCrossRepoReviewer:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
@@ -239,3 +238,67 @@ class TestCrossRepoReviewer:
         assert isinstance(result, SpecialistFailure)
         assert result.role == "cross-repo-impact-reviewer"
         assert "timeout" in result.reason.lower()
+
+    def test_parse_success_logs_specialist_output(self, caplog):
+        """Observability: successful impact parse logs preview and counts."""
+        import logging
+
+        from src.reviewer.orchestrator import _parse_specialist_impact_output
+
+        ctx = self._make_context(impact_result=self._make_impact_result())
+        raw = json.dumps(
+            {
+                "impact_warnings": [
+                    {
+                        "changed_file": "src/f.py",
+                        "changed_entity": "E",
+                        "affected_service": "svc",
+                        "affected_repository": "repo",
+                        "relationship_type": "CONSUMES",
+                        "severity": "high",
+                        "description": "d",
+                    }
+                ]
+            }
+        )
+        with caplog.at_level(logging.INFO):
+            result = _parse_specialist_impact_output(raw, ctx)
+        assert isinstance(result, SpecialistImpactOutput)
+        logs = [r for r in caplog.records if "cross-repo-impact-reviewer" in r.getMessage()]
+        assert len(logs) == 1
+        msg = logs[0].getMessage()
+        assert "impact_count" in msg
+        assert "1" in msg
+        assert "parse_failed" in msg
+
+    def test_parse_empty_impact_json_logs_specialist_output(self, caplog):
+        """Observability: empty impact JSON logs zero count."""
+        import logging
+
+        from src.reviewer.orchestrator import _parse_specialist_impact_output
+
+        ctx = self._make_context(impact_result=self._make_impact_result())
+        raw = json.dumps({"impact_warnings": []})
+        with caplog.at_level(logging.INFO):
+            _ = _parse_specialist_impact_output(raw, ctx)
+        logs = [r for r in caplog.records if "cross-repo-impact-reviewer" in r.getMessage()]
+        assert len(logs) == 1
+        msg = logs[0].getMessage()
+        assert "impact_count" in msg
+        assert "0" in msg
+
+    def test_parse_failure_logs_specialist_output(self, caplog):
+        """Observability: impact parse failure logs preview with parse_failed=True."""
+        import logging
+
+        from src.reviewer.orchestrator import _parse_specialist_impact_output
+
+        ctx = self._make_context(impact_result=self._make_impact_result())
+        raw = "not valid json"
+        with caplog.at_level(logging.INFO):
+            result = _parse_specialist_impact_output(raw, ctx)
+        assert isinstance(result, SpecialistFailure)
+        logs = [r for r in caplog.records if "cross-repo-impact-reviewer" in r.getMessage()]
+        assert len(logs) == 1
+        msg = logs[0].getMessage()
+        assert "parse_failed" in msg

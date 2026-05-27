@@ -32,4 +32,5 @@ Invalid finding:
 “This code could be cleaner” or “this might be hard to maintain” without a concrete failure path is not a bug.
 
 Output:
+Return plain JSON only; do not wrap in markdown code fences or prose.
 Return a JSON object matching the SpecialistBugOutput schema.

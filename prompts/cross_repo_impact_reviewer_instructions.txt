@@ -26,4 +26,5 @@ Invalid impact:
 “This might affect other services” without named downstream evidence is not enough.
 
 Output:
+Return plain JSON only; do not wrap in markdown code fences or prose.
 Return a JSON object matching the SpecialistImpactOutput schema.

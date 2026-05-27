@@ -66,3 +66,203 @@ class TestBuildReviewContext:
         assert "## Cross-Repo Impact" in result.shared_prompt
         assert "<pr_title>" in result.shared_prompt
         assert "<diff_content>" in result.shared_prompt
+
+
+class TestSafeContextDiagnostics:
+    def test_diagnostics_include_all_four_fields(self, sample_diff, caplog):
+        """Task 3.3 RED: safe diagnostics include lengths/counts and bounded path summary."""
+        import logging
+
+        from src.reviewer.orchestrator import _safe_context_summary
+
+        with caplog.at_level(logging.DEBUG):
+            result = _safe_context_summary(
+                diff_text=sample_diff,
+                shared_prompt="prompt text here",
+                changed_paths=[
+                    "src/a.py",
+                    "src/b.py",
+                    "src/c.py",
+                    "src/d.py",
+                    "src/e.py",
+                    "src/f.py",
+                ],
+            )
+
+        assert isinstance(result, dict)
+        assert "diff_text_length" in result
+        assert "shared_prompt_length" in result
+        assert "changed_paths_count" in result
+        assert "changed_paths_sample" in result
+        assert result["diff_text_length"] == len(sample_diff)
+        assert result["shared_prompt_length"] == len("prompt text here")
+        assert result["changed_paths_count"] == 6
+        assert len(result["changed_paths_sample"]) <= 5
+        assert result["changed_paths_sample"] == [
+            "src/a.py",
+            "src/b.py",
+            "src/c.py",
+            "src/d.py",
+            "src/e.py",
+        ]
+
+    def test_diagnostics_never_include_full_diff_body(self, sample_diff, caplog):
+        """Task 3.4 RED: diagnostics must not leak full diff text or secrets."""
+        import logging
+
+        from src.reviewer.orchestrator import _safe_context_summary
+
+        with caplog.at_level(logging.DEBUG):
+            _safe_context_summary(
+                diff_text=sample_diff,
+                shared_prompt="prompt with secret-token-12345",
+                changed_paths=["src/a.py"],
+            )
+
+        # The full diff body must not appear in any log record
+        for record in caplog.records:
+            assert sample_diff not in record.getMessage()
+            assert "secret-token-12345" not in record.getMessage()
+
+    def test_diagnostics_with_empty_diff_and_many_paths(self, caplog):
+        """Triangulation: empty diff and many paths produce correct zero/short values."""
+        import logging
+
+        from src.reviewer.orchestrator import _safe_context_summary
+
+        with caplog.at_level(logging.DEBUG):
+            result = _safe_context_summary(
+                diff_text="",
+                shared_prompt="",
+                changed_paths=[],
+            )
+
+        assert result["diff_text_length"] == 0
+        assert result["shared_prompt_length"] == 0
+        assert result["changed_paths_count"] == 0
+        assert result["changed_paths_sample"] == []
+
+    def test_diagnostics_path_sample_bounded_at_five(self, caplog):
+        """Triangulation: sample is strictly bounded to first 5 paths."""
+        import logging
+
+        from src.reviewer.orchestrator import _safe_context_summary
+
+        paths = [f"src/{i}.py" for i in range(10)]
+
+        with caplog.at_level(logging.DEBUG):
+            result = _safe_context_summary(
+                diff_text="diff",
+                shared_prompt="prompt",
+                changed_paths=paths,
+            )
+
+        assert result["changed_paths_count"] == 10
+        assert len(result["changed_paths_sample"]) == 5
+        assert result["changed_paths_sample"] == paths[:5]
+
+
+class TestSpecialistOutputLogging:
+    def test_safe_output_preview_normalizes_whitespace(self):
+        """Preview collapses all whitespace runs to a single space."""
+        from src.reviewer.orchestrator import _safe_output_preview
+
+        raw = "  hello\n\nworld\t\t!  "
+        assert _safe_output_preview(raw) == "hello world !"
+
+    def test_safe_output_preview_truncates_long_output(self):
+        """Preview is bounded to 200 chars plus ellipsis."""
+        from src.reviewer.orchestrator import _safe_output_preview
+
+        raw = "x" * 300
+        preview = _safe_output_preview(raw)
+        assert len(preview) == 203
+        assert preview.endswith("...")
+
+    def test_safe_output_preview_empty_string(self):
+        """Preview handles empty string gracefully."""
+        from src.reviewer.orchestrator import _safe_output_preview
+
+        assert _safe_output_preview("") == ""
+
+    def test_log_specialist_output_info_level_with_payload(self, caplog):
+        """Successful parse logs role, length, preview, keys, counts at INFO."""
+        import logging
+
+        from src.reviewer.orchestrator import _log_specialist_output
+
+        with caplog.at_level(logging.INFO):
+            _log_specialist_output(
+                role="bug-reviewer-a",
+                raw='{"bugs": []}',
+                payload={"bugs": []},
+                parse_failed=False,
+                bug_count=0,
+            )
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        msg = record.getMessage()
+        assert "bug-reviewer-a" in msg
+        assert "raw_length" in msg
+        assert "preview" in msg
+        assert "top_level_keys" in msg
+        assert "bug_count" in msg
+        assert "parse_failed" in msg
+
+    def test_log_specialist_output_failure_no_payload(self, caplog):
+        """Parse failure logs role and parse_failed without top_level_keys."""
+        import logging
+
+        from src.reviewer.orchestrator import _log_specialist_output
+
+        with caplog.at_level(logging.INFO):
+            _log_specialist_output(
+                role="security-reviewer",
+                raw="not json",
+                parse_failed=True,
+            )
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        msg = record.getMessage()
+        assert "security-reviewer" in msg
+        assert "parse_failed" in msg
+        assert "top_level_keys" not in msg
+        assert "bug_count" not in msg
+
+    def test_log_specialist_output_with_impact_count(self, caplog):
+        """Impact reviewer logs impact_count instead of bug_count."""
+        import logging
+
+        from src.reviewer.orchestrator import _log_specialist_output
+
+        with caplog.at_level(logging.INFO):
+            _log_specialist_output(
+                role="cross-repo-impact-reviewer",
+                raw='{"impact_warnings": []}',
+                payload={"impact_warnings": []},
+                parse_failed=False,
+                impact_count=0,
+            )
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        msg = record.getMessage()
+        assert "impact_count" in msg
+        assert "bug_count" not in msg
+
+    def test_log_specialist_output_payload_keys_visible_for_misshaped_json(self, caplog):
+        """Mis-shaped JSON (e.g. findings instead of bugs) still exposes top_level_keys."""
+        import logging
+
+        from src.reviewer.orchestrator import _log_specialist_output
+
+        with caplog.at_level(logging.INFO):
+            _log_specialist_output(
+                role="bug-reviewer-a",
+                raw='{"findings": [{"desc": "x"}]}',
+                payload={"findings": [{"desc": "x"}]},
+                parse_failed=True,
+            )
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        msg = record.getMessage()
+        assert "findings" in msg

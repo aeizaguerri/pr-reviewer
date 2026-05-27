@@ -33,4 +33,5 @@ Invalid finding:
 “Input validation is missing” is not enough unless there is a realistic attacker-controlled path and security impact.
 
 Output:
+Return plain JSON only; do not wrap in markdown code fences or prose.
 Return a JSON object matching the SpecialistSecurityPayload schema.

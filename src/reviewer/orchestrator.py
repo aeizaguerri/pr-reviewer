@@ -99,6 +99,24 @@ def build_review_context(
     )
 
 
+def _safe_context_summary(
+    diff_text: str,
+    shared_prompt: str,
+    changed_paths: list[str],
+) -> dict[str, Any]:
+    """Return safe diagnostics for context delivery.
+
+    Exposes lengths, counts, and a bounded path sample.  Never includes
+    full diff bodies or secret-bearing raw content.
+    """
+    return {
+        "diff_text_length": len(diff_text),
+        "shared_prompt_length": len(shared_prompt),
+        "changed_paths_count": len(changed_paths),
+        "changed_paths_sample": changed_paths[:5],
+    }
+
+
 def _build_agent(
     *,
     agent_id: str,
@@ -125,10 +143,113 @@ def _content_to_raw(content: Any) -> str:
     return json.dumps(content)
 
 
-def _specialist_payload_dict(raw: str) -> dict[str, Any]:
-    data = json.loads(raw)
+def _extract_json_object_text(raw: str) -> str:
+    """Return the best JSON object text found in *raw*.
+
+    Tries direct JSON first, then fenced markdown blocks, then a balanced
+    brace scan. Raises ``ValueError`` when nothing looks like a JSON object.
+    """
+    # 1. Direct parse — succeeds for clean JSON
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Markdown fence extraction (try every fence, skip invalid)
+    fence_matches = re.findall(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL)
+    for candidate in fence_matches:
+        candidate = candidate.strip()
+        if candidate:
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+
+    # 3. Balanced first-object scan (string-aware)
+    start = raw.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in response")
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(raw[start:], start=start):
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = False
+                continue
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = raw[start : i + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    break
+                break
+    raise ValueError("No valid JSON object found in response")
+
+
+def _parse_specialist_payload_json(raw: str) -> dict[str, Any]:
+    """Extract and parse a JSON object from *raw*, returning a dict.
+
+    Raises on failure so existing catch blocks handle degradation.
+    """
+    text = _extract_json_object_text(raw)
+    data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Specialist output must be a JSON object")
+    return data
+
+
+def _safe_output_preview(raw: str, max_length: int = 200) -> str:
+    """Return a whitespace-normalized, bounded preview of raw output."""
+    preview = " ".join(raw.split())
+    if len(preview) > max_length:
+        preview = preview[:max_length] + "..."
+    return preview
+
+
+def _log_specialist_output(
+    role: str,
+    raw: str,
+    payload: dict[str, Any] | None = None,
+    parse_failed: bool = False,
+    bug_count: int | None = None,
+    impact_count: int | None = None,
+) -> None:
+    """Log safe specialist output diagnostics at INFO level."""
+    extra: dict[str, Any] = {
+        "role": role,
+        "raw_length": len(raw),
+        "preview": _safe_output_preview(raw),
+        "parse_failed": parse_failed,
+    }
+    if payload is not None:
+        extra["top_level_keys"] = list(payload.keys())
+    if bug_count is not None:
+        extra["bug_count"] = bug_count
+    if impact_count is not None:
+        extra["impact_count"] = impact_count
+    logger.info("Specialist output: %s", extra)
+
+
+def _specialist_payload_dict(raw: str) -> dict[str, Any]:
+    data = _parse_specialist_payload_json(raw)
     cleaned = dict(data)
     for key in ("provider", "raw_content", "parse_failed"):
         cleaned.pop(key, None)
@@ -136,12 +257,25 @@ def _specialist_payload_dict(raw: str) -> dict[str, Any]:
 
 
 def _parse_specialist_bug_output(raw: str, role: str, ctx: ReviewContext) -> SpecialistBugOutput:
+    payload_dict: dict[str, Any] | None = None
     try:
-        payload = SpecialistBugPayload(**_specialist_payload_dict(raw))
+        payload_dict = _parse_specialist_payload_json(raw)
+        cleaned = dict(payload_dict)
+        for key in ("provider", "raw_content", "parse_failed"):
+            cleaned.pop(key, None)
+        payload = SpecialistBugPayload(**cleaned)
         out = SpecialistBugOutput(bugs=payload.bugs)
     except Exception:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
+        _log_specialist_output(role=role, raw=raw, payload=payload_dict, parse_failed=True)
         return SpecialistBugOutput(bugs=[], provider=role, raw_content=raw, parse_failed=True)
+    _log_specialist_output(
+        role=role,
+        raw=raw,
+        payload=payload_dict,
+        parse_failed=False,
+        bug_count=len(out.bugs),
+    )
     out.provider = role
     out.raw_content = raw
     return out
@@ -150,23 +284,58 @@ def _parse_specialist_bug_output(raw: str, role: str, ctx: ReviewContext) -> Spe
 def _parse_specialist_security_output(
     raw: str, ctx: ReviewContext
 ) -> SpecialistSecurityOutput | SpecialistFailure:
+    payload_dict: dict[str, Any] | None = None
     try:
-        payload = SpecialistSecurityPayload(**_specialist_payload_dict(raw))
-        return SpecialistSecurityOutput(bugs=payload.bugs, raw_content=raw)
+        payload_dict = _parse_specialist_payload_json(raw)
+        cleaned = dict(payload_dict)
+        for key in ("provider", "raw_content", "parse_failed"):
+            cleaned.pop(key, None)
+        payload = SpecialistSecurityPayload(**cleaned)
+        out = SpecialistSecurityOutput(bugs=payload.bugs, raw_content=raw)
     except Exception as exc:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
+        _log_specialist_output(
+            role="security-reviewer", raw=raw, payload=payload_dict, parse_failed=True
+        )
         return SpecialistFailure(role="security-reviewer", reason=f"parse failure: {exc}")
+    _log_specialist_output(
+        role="security-reviewer",
+        raw=raw,
+        payload=payload_dict,
+        parse_failed=False,
+        bug_count=len(out.bugs),
+    )
+    return out
 
 
 def _parse_specialist_impact_output(
     raw: str, ctx: ReviewContext
 ) -> SpecialistImpactOutput | SpecialistFailure:
+    payload_dict: dict[str, Any] | None = None
     try:
-        payload = SpecialistImpactPayload(**_specialist_payload_dict(raw))
-        return SpecialistImpactOutput(impact_warnings=payload.impact_warnings, raw_content=raw)
+        payload_dict = _parse_specialist_payload_json(raw)
+        cleaned = dict(payload_dict)
+        for key in ("provider", "raw_content", "parse_failed"):
+            cleaned.pop(key, None)
+        payload = SpecialistImpactPayload(**cleaned)
+        out = SpecialistImpactOutput(impact_warnings=payload.impact_warnings, raw_content=raw)
     except Exception as exc:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
+        _log_specialist_output(
+            role="cross-repo-impact-reviewer",
+            raw=raw,
+            payload=payload_dict,
+            parse_failed=True,
+        )
         return SpecialistFailure(role="cross-repo-impact-reviewer", reason=f"parse failure: {exc}")
+    _log_specialist_output(
+        role="cross-repo-impact-reviewer",
+        raw=raw,
+        payload=payload_dict,
+        parse_failed=False,
+        impact_count=len(out.impact_warnings),
+    )
+    return out
 
 
 def _iter_team_messages(run: Any) -> Iterable[Any]:
@@ -436,7 +605,9 @@ def _ground_impact_warnings(
     return grounded
 
 
-def _ground_bug_reports(parsed: list[BugReport], ctx: ReviewContext, source: str) -> list[BugReport]:
+def _ground_bug_reports(
+    parsed: list[BugReport], ctx: ReviewContext, source: str
+) -> list[BugReport]:
     """Discard bug findings whose file is not present in the PR diff."""
     if not parsed:
         return []
@@ -639,6 +810,14 @@ async def arun_multi_agent_review(
         github_token=github_token,
     )
 
+    # Safe context-delivery diagnostics (lengths/counts only — no diff body or secrets)
+    diagnostics = _safe_context_summary(
+        diff_text=ctx.diff_text,
+        shared_prompt=ctx.shared_prompt,
+        changed_paths=ctx.changed_paths,
+    )
+    logger.info("Review context diagnostics: %s", diagnostics)
+
     # Step 3: fan out all specialists concurrently
     timeout = Config.REVIEW_SPECIALIST_TIMEOUT_SECONDS
     logger.debug("Specialist timeout configured: %s seconds", timeout)
@@ -657,10 +836,14 @@ async def arun_multi_agent_review(
             _run_bug_reviewers(ctx, role_configs, supports_structured_output), timeout=timeout
         ),
         asyncio.wait_for(
-            _run_security_reviewer(ctx, role_configs, supports_structured_output, timeout=timeout), timeout=timeout
+            _run_security_reviewer(ctx, role_configs, supports_structured_output, timeout=timeout),
+            timeout=timeout,
         ),
         asyncio.wait_for(
-            _run_cross_repo_reviewer(ctx, role_configs, supports_structured_output, timeout=timeout), timeout=timeout
+            _run_cross_repo_reviewer(
+                ctx, role_configs, supports_structured_output, timeout=timeout
+            ),
+            timeout=timeout,
         ),
         return_exceptions=True,
     )
