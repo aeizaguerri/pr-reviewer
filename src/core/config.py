@@ -72,6 +72,9 @@ class Config:
     OPIK_PROJECT_NAME: str = os.getenv("OPIK_PROJECT_NAME", "pr-reviewer")
     OPIK_WORKSPACE: str = os.getenv("OPIK_WORKSPACE", "")
 
+    # CORS
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
+
     @classmethod
     def get_model_config(cls) -> tuple[str, str, str]:
         """Returns (model_id, base_url, api_key) for the configured DEFAULT_PROVIDER."""

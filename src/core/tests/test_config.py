@@ -66,3 +66,29 @@ class TestResolveRoleConfigs:
         """1.3: active role keys contain only bug, security, cross_repo."""
         configs = Config.resolve_role_configs("key")
         assert set(configs.keys()) == {"bug", "security", "cross_repo"}
+
+
+class TestCorsOrigins:
+    """Verify CORS_ORIGINS reads from environment with sensible default."""
+
+    def test_defaults_to_star_when_unset(self, monkeypatch):
+        """CORS_ORIGINS must default to '*' when no env value is present."""
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        import importlib
+        import src.core.config as config_module
+        from unittest.mock import patch
+
+        with patch("dotenv.load_dotenv"):
+            importlib.reload(config_module)
+            assert config_module.Config.CORS_ORIGINS == "*"
+
+    def test_reads_env_var_override(self, monkeypatch):
+        """CORS_ORIGINS must reflect the env variable when set."""
+        monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000")
+        import importlib
+        import src.core.config as config_module
+        from unittest.mock import patch
+
+        with patch("dotenv.load_dotenv"):
+            importlib.reload(config_module)
+            assert config_module.Config.CORS_ORIGINS == "http://localhost:3000"

@@ -10,7 +10,7 @@ import time
 from neo4j import Driver
 from neo4j.exceptions import ClientError, DriverError, ServiceUnavailable
 
-from src.core.config import Config
+import src.core.config as config_module
 from src.knowledge.models import ImpactResult, ImpactWarning
 from src.knowledge.schema import (
     CONTRACT,
@@ -41,7 +41,7 @@ def _run_query(
         timeout: Override for the query timeout in seconds. Defaults to
             ``Config.GRAPH_QUERY_TIMEOUT`` when not supplied.
     """
-    effective_timeout = timeout if timeout is not None else Config.GRAPH_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else config_module.Config.GRAPH_QUERY_TIMEOUT
     with driver.session() as session:
         result = session.run(cypher, parameters or {}, timeout=effective_timeout)
         return [record.data() for record in result]
@@ -163,7 +163,7 @@ def find_consumers_of_paths(
             rows.extend(_run_query(driver, cypher, {"paths": file_paths}, timeout=timeout))
 
         query_time_ms = (time.monotonic() - start) * 1000
-        max_warnings = Config.MAX_IMPACT_WARNINGS
+        max_warnings = config_module.Config.MAX_IMPACT_WARNINGS
         truncated = len(rows) > max_warnings
         rows = rows[:max_warnings]
 

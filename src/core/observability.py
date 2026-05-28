@@ -179,7 +179,7 @@ def track_if_enabled(**track_kwargs: Any) -> Callable[[F], F]:
             ...
 
         @track_if_enabled(capture_input=False)
-        def review_pr_with_config(owner, repo, pr_number, provider_config, ...):
+        def run_review(request: ReviewRequest) -> ReviewOutput:
             ...
 
     When ``_configured`` is True and ``Config.OPIK_API_KEY`` is non-empty,

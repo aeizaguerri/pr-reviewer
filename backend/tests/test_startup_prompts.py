@@ -15,7 +15,6 @@ def test_lifespan_configures_opik_before_warming_prompt_cache(monkeypatch):
         lambda names: calls.append(f"warm:{','.join(names)}"),
     )
     monkeypatch.setattr(main_module.Config, "validate", lambda: None)
-    monkeypatch.setattr(main_module.BackendConfig, "validate", lambda: None)
 
     with TestClient(main_module.app):
         pass
@@ -25,3 +24,15 @@ def test_lifespan_configures_opik_before_warming_prompt_cache(monkeypatch):
         "warm:bug_reviewer_instructions,security_reviewer_instructions,"
         "cross_repo_impact_reviewer_instructions,pr_review_prompt",
     ]
+
+
+def test_lifespan_calls_config_validate_exactly_once(monkeypatch):
+    import backend.main as main_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(main_module.Config, "validate", lambda: calls.append("validate"))
+
+    with TestClient(main_module.app):
+        pass
+
+    assert calls == ["validate"]

@@ -32,7 +32,7 @@ class TestBackendCompatibility:
             provider="cerebras",
         )
 
-        with patch("backend.services.reviewer.review_pr_with_config") as mock_review:
+        with patch("backend.services.reviewer.agent_run_review") as mock_review:
             mock_review.return_value = review_output
             result = run_review(req, api_key="key", github_token="tok")
 

@@ -3,8 +3,8 @@
 Migrated from src/ui/config_adapter.py — same logic, same provider keys.
 """
 
-from backend.core.config import BackendConfig
 from backend.models.schemas import ProviderInfo
+from src.core.config import Config
 
 # Models that support structured outputs (Pydantic schema)
 # Cerebras and OpenAI support it; HuggingFace standard and Ollama don't
@@ -85,10 +85,10 @@ def build_provider_config(
     elif api_key and api_key.strip():
         resolved_key = api_key
     elif provider == "openai":
-        resolved_key = BackendConfig.OPENAI_API_KEY
+        resolved_key = Config.OPENAI_API_KEY
     else:
         # cerebras and huggingface both use the HF key
-        resolved_key = BackendConfig.HUGGING_FACE_API_KEY
+        resolved_key = Config.HUGGING_FACE_API_KEY
 
     return model_id, base_url, resolved_key
 
@@ -110,7 +110,7 @@ def get_all_providers() -> list[ProviderInfo]:
 def resolve_public_hf_role_configs(api_key: str) -> dict[str, tuple[str, str, str]]:
     """Resolve per-role configs for the public Hugging Face review path.
 
-    Delegates to BackendConfig.resolve_role_configs() so env-driven model
+    Delegates to Config.resolve_role_configs() so env-driven model
     overrides and DEFAULT_MODEL fallback are applied consistently.
 
     Args:
@@ -119,4 +119,4 @@ def resolve_public_hf_role_configs(api_key: str) -> dict[str, tuple[str, str, st
     Returns:
         dict mapping role name -> (model_id, base_url, api_key).
     """
-    return BackendConfig.resolve_role_configs(api_key)
+    return Config.resolve_role_configs(api_key)

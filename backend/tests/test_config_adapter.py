@@ -1,9 +1,11 @@
 """Unit tests for backend/core/providers.py (migrated from src/ui/config_adapter.py)."""
 
+from unittest.mock import patch
+
 import pytest
 
-from backend.core.config import BackendConfig
 from backend.core.providers import PROVIDERS, build_provider_config, resolve_public_hf_role_configs
+from src.core.config import Config
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +149,7 @@ class TestResolvePublicHfRoleConfigs:
     def test_rejects_stale_leader_role_config(self):
         """1.4: stale 'leader' role config must raise ValueError."""
         with pytest.raises(ValueError, match="leader"):
-            BackendConfig._validate_role_configs({
+            Config._validate_role_configs({
                 "bug": ("m", "u", "k"),
                 "security": ("m", "u", "k"),
                 "cross_repo": ("m", "u", "k"),
@@ -164,3 +166,80 @@ class TestUnknownProvider:
     def test_raises_value_error_for_unknown_provider(self):
         with pytest.raises(ValueError, match="Unknown provider"):
             build_provider_config("anthropic", "claude-3", "sk-ant")
+
+
+# ---------------------------------------------------------------------------
+# Duplicate config source rejection
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateConfigSourceRejected:
+    """Verify backend.core.config is deleted and BackendConfig is absent."""
+
+    def test_backend_core_config_is_not_importable(self):
+        import importlib
+
+        with pytest.raises((ModuleNotFoundError, ImportError)):
+            importlib.import_module("backend.core.config")
+
+    def test_backend_config_class_is_absent_from_surface(self):
+        from src.core.config import Config
+
+        assert not hasattr(Config, "BackendConfig")
+        import importlib
+
+        with pytest.raises((ModuleNotFoundError, ImportError)):
+            importlib.import_module("backend.core.config")
+
+
+# ---------------------------------------------------------------------------
+# Provider fallback regression: env-driven key resolution after Config migration
+# ---------------------------------------------------------------------------
+
+
+class TestProviderFallbackRegression:
+    """Verify build_provider_config falls back to Config env values correctly."""
+
+    def test_openai_fallback_to_config_api_key(self):
+        with patch.object(Config, "OPENAI_API_KEY", "cfg-openai-key"):
+            model_id, base_url, api_key = build_provider_config("openai", "gpt-4o", "")
+        assert api_key == "cfg-openai-key"
+
+    def test_hf_fallback_to_config_api_key(self):
+        with patch.object(Config, "HUGGING_FACE_API_KEY", "cfg-hf-key"):
+            model_id, base_url, api_key = build_provider_config("huggingface", "m", "")
+        assert api_key == "cfg-hf-key"
+
+    def test_cerebras_fallback_to_config_api_key(self):
+        with patch.object(Config, "HUGGING_FACE_API_KEY", "cfg-hf-key"):
+            model_id, base_url, api_key = build_provider_config("cerebras", "m", "")
+        assert api_key == "cfg-hf-key"
+
+    def test_ollama_never_uses_config_key(self):
+        with patch.object(Config, "HUGGING_FACE_API_KEY", "cfg-hf-key"):
+            model_id, base_url, api_key = build_provider_config("ollama", "m", "")
+        assert api_key == "ollama"
+
+    def test_openai_base_url_preserved(self):
+        model_id, base_url, api_key = build_provider_config("openai", "gpt-4o", "k")
+        assert base_url == "https://api.openai.com/v1"
+
+    def test_hf_base_url_preserved(self):
+        model_id, base_url, api_key = build_provider_config("huggingface", "m", "k")
+        assert base_url == "https://router.huggingface.co/v1"
+
+    def test_ollama_base_url_preserved(self):
+        model_id, base_url, api_key = build_provider_config("ollama", "m", "k")
+        assert base_url == "http://localhost:11434/v1"
+
+    def test_cerebras_default_model_preserved(self):
+        model_id, base_url, api_key = build_provider_config("cerebras", "", "k")
+        assert model_id == PROVIDERS["cerebras"]["default_model"]
+
+    def test_openai_default_model_preserved(self):
+        model_id, base_url, api_key = build_provider_config("openai", "", "k")
+        assert model_id == PROVIDERS["openai"]["default_model"]
+
+    def test_ollama_default_model_preserved(self):
+        model_id, base_url, api_key = build_provider_config("ollama", "", "k")
+        assert model_id == PROVIDERS["ollama"]["default_model"]
