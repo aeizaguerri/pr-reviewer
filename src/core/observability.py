@@ -169,11 +169,6 @@ def warm_prompt_cache(names: Iterable[str]) -> None:
             )
 
 
-def get_reviewer_prompt() -> str:
-    """Compatibility wrapper for the legacy reviewer instructions prompt."""
-    return get_prompt("reviewer_instructions")
-
-
 def track_if_enabled(**track_kwargs: Any) -> Callable[[F], F]:
     """Decorator factory: ``@opik.track(...)`` when Opik is configured, identity otherwise.
 

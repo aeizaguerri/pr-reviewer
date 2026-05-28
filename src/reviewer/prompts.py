@@ -1,21 +1,15 @@
 """Prompt constants and helpers for the PR code reviewer."""
 
 from src.knowledge.models import ImpactResult
-from src.core.observability import get_prompt, get_reviewer_prompt
+from src.core.observability import get_prompt
 
 # Type annotations for static analysis — values are loaded lazily via __getattr__.
-REVIEWER_INSTRUCTIONS: str
 BUG_REVIEWER_INSTRUCTIONS: str
 SECURITY_REVIEWER_INSTRUCTIONS: str
 CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS: str
 
 
 def __getattr__(name: str) -> str:
-    if name == "REVIEWER_INSTRUCTIONS":
-        value = get_reviewer_prompt()
-        globals()["REVIEWER_INSTRUCTIONS"] = value
-        return value
-
     prompt_names = {
         "BUG_REVIEWER_INSTRUCTIONS": "bug_reviewer_instructions",
         "SECURITY_REVIEWER_INSTRUCTIONS": "security_reviewer_instructions",

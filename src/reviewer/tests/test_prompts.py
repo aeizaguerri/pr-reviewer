@@ -6,7 +6,6 @@ from pathlib import Path
 
 from src.knowledge.models import ImpactWarning
 from src.reviewer.models import BugReport
-from src.reviewer.prompts import REVIEWER_INSTRUCTIONS
 
 
 def _read_prompt(name: str) -> str:
@@ -18,44 +17,6 @@ def _extract_json_block(prompt: str, label: str) -> dict:
     match = re.search(pattern, prompt, re.DOTALL)
     assert match, f"Missing JSON block for {label}"
     return json.loads(match.group(1))
-
-
-class TestAntiInjectionParagraph:
-    """SC-L2-1: Verify the defense paragraph is present in REVIEWER_INSTRUCTIONS."""
-
-    def test_untrusted_keyword_present(self):
-        """Instructions must mention 'untrusted' in relation to diff/input content."""
-        assert "untrusted" in REVIEWER_INSTRUCTIONS.lower()
-
-    def test_diff_content_tag_referenced(self):
-        """Instructions must reference the <diff_content> XML delimiter."""
-        assert "<diff_content>" in REVIEWER_INSTRUCTIONS
-
-    def test_pr_title_tag_referenced(self):
-        """Instructions must reference the <pr_title> XML delimiter."""
-        assert "<pr_title>" in REVIEWER_INSTRUCTIONS
-
-    def test_ignore_embedded_instructions(self):
-        """Instructions must tell the LLM to ignore embedded directives."""
-        lower = REVIEWER_INSTRUCTIONS.lower()
-        # Any of these phrases indicate the anti-injection intent
-        assert any(
-            phrase in lower
-            for phrase in [
-                "ignore",
-                "never follow",
-                "do not follow",
-            ]
-        ), "Expected an instruction to ignore embedded directives"
-
-    def test_security_section_heading(self):
-        """A 'Security' or 'Untrusted' section heading must be present."""
-        assert "Security" in REVIEWER_INSTRUCTIONS or "CRITICAL" in REVIEWER_INSTRUCTIONS
-
-    def test_instructions_is_non_empty_string(self):
-        """Sanity: the constant must be a non-empty string."""
-        assert isinstance(REVIEWER_INSTRUCTIONS, str)
-        assert len(REVIEWER_INSTRUCTIONS) > 100
 
 
 class TestMultiAgentPromptConstants:
@@ -88,14 +49,6 @@ class TestMultiAgentPromptConstants:
             "security_reviewer_instructions",
             "cross_repo_impact_reviewer_instructions",
         ]
-
-    def test_reviewer_instructions_keeps_compat_loader(self, monkeypatch):
-        import src.reviewer.prompts as prompts
-
-        prompts.__dict__.pop("REVIEWER_INSTRUCTIONS", None)
-        monkeypatch.setattr(prompts, "get_reviewer_prompt", lambda: "compat reviewer")
-
-        assert prompts.REVIEWER_INSTRUCTIONS == "compat reviewer"
 
     def test_local_security_prompt_excludes_general_correctness_bugs(self):
         from pathlib import Path
@@ -209,20 +162,22 @@ class TestSpecialistPromptContracts:
 
 
 class TestTagNameCrossLayerConsistency:
-    """S1: Tag names in REVIEWER_INSTRUCTIONS must match those used in _make_prompt()."""
+    """S1: Tag names in pr_review_prompt must match those used in _make_prompt()."""
 
-    def test_diff_content_tag_in_both_instructions_and_prompt(self):
-        """<diff_content> tag referenced in prompts.py must appear in _make_prompt() output."""
+    def test_diff_content_tag_in_prompt_template_and_rendered_prompt(self):
+        """<diff_content> tag appears in the template and rendered prompt."""
         from src.reviewer.agent import _make_prompt
 
+        template = _read_prompt("pr_review_prompt")
         prompt = _make_prompt("title", "diff")
-        assert "<diff_content>" in REVIEWER_INSTRUCTIONS
+        assert "<diff_content>" in template
         assert "<diff_content>" in prompt
 
-    def test_pr_title_tag_in_both_instructions_and_prompt(self):
-        """<pr_title> tag referenced in prompts.py must appear in _make_prompt() output."""
+    def test_pr_title_tag_in_prompt_template_and_rendered_prompt(self):
+        """<pr_title> tag appears in the template and rendered prompt."""
         from src.reviewer.agent import _make_prompt
 
+        template = _read_prompt("pr_review_prompt")
         prompt = _make_prompt("title", "diff")
-        assert "<pr_title>" in REVIEWER_INSTRUCTIONS
+        assert "<pr_title>" in template
         assert "<pr_title>" in prompt

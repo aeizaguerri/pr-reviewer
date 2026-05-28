@@ -1,17 +1,13 @@
 import html
-import json
 import logging
 import os
 import re
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai.like import OpenAILike
-
 from src.core.config import Config
 from src.core.observability import render_prompt, track_if_enabled
 from src.reviewer.models import BugReport, ReviewOutput
-from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
+from src.reviewer.prompts import _build_impact_section
 
 logger = logging.getLogger(__name__)
 
@@ -51,51 +47,6 @@ def _parse_failure_result(impact_result) -> ReviewOutput:
     )
 
 
-def _build_agent(debug: bool = False) -> Agent:
-    model_id, base_url, api_key = Config.get_model_config()
-
-    # Use structured output only for providers that support it
-    use_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
-
-    return Agent(
-        id="pr-code-reviewer",
-        model=OpenAILike(
-            id=model_id,
-            base_url=base_url,
-            api_key=api_key,
-        ),
-        instructions=REVIEWER_INSTRUCTIONS,
-        output_schema=ReviewOutput if use_structured else None,
-        markdown=False,
-        debug_mode=debug,
-    )
-
-
-def _build_agent_with_config(
-    provider_config: tuple[str, str, str],
-    supports_structured_output: bool = True,
-    debug: bool = False,
-) -> Agent:
-    """Build an Agent with explicit (model_id, base_url, api_key) — no env reads."""
-    model_id, base_url, api_key = provider_config
-
-    # Use structured output only for providers that support it
-    use_structured = supports_structured_output
-
-    return Agent(
-        id="pr-code-reviewer",
-        model=OpenAILike(
-            id=model_id,
-            base_url=base_url,
-            api_key=api_key,
-        ),
-        instructions=REVIEWER_INSTRUCTIONS,
-        output_schema=ReviewOutput if use_structured else None,
-        markdown=False,
-        debug_mode=debug,
-    )
-
-
 def _sanitize_title(title: str) -> str:
     """Strip control characters and collapse whitespace from PR title."""
     # Remove all control characters (C0 + C1) except space, plus Unicode BIDI/invisible chars
@@ -123,19 +74,6 @@ def _bugs_to_comments(bugs: list[BugReport]) -> list[dict]:
         }
         for bug in bugs
     ]
-
-
-@track_if_enabled(name="llm_call")
-def _run_llm(agent: Agent, prompt: str) -> str:
-    """Run the agent and return the raw response content as a string."""
-    run = agent.run(prompt)
-    return (
-        run.content
-        if isinstance(run.content, str)
-        else json.dumps(
-            run.content.model_dump() if hasattr(run.content, "model_dump") else run.content
-        )
-    )
 
 
 def _extract_changed_paths(diff_text: str) -> list[str]:
