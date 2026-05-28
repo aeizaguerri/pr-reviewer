@@ -62,6 +62,10 @@ class TestMultiAgentPromptConstants:
         assert "realistic" in lower
         assert "general correctness bugs" in lower
         assert "validation issues without attacker impact" in lower
+        assert "business logic bugs without a security boundary" in lower
+        assert "sorting, ordering, priority" in lower
+        assert "what can an attacker do" in lower
+        assert "not a security vulnerability" in lower
         assert "attacker" in lower
 
 
