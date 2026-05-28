@@ -218,7 +218,7 @@ class TestSynthesizer:
         assert "use parameterized queries" in bug.suggestion
 
     def test_synthesize_tags_code_defects_as_bug(self):
-        """2.1: judged code defects are tagged category='bug' and source='bug-reviewer-team'."""
+        """2.1: judged code defects are tagged category='bug' and source defaults to both reviewers."""
         from src.reviewer.orchestrator import _synthesize
 
         judged = [
@@ -234,7 +234,7 @@ class TestSynthesizer:
         result = _synthesize(judged, [], [], ctx)
         assert len(result.bugs) == 1
         assert result.bugs[0].category == "bug"
-        assert result.bugs[0].source == "bug-reviewer-team"
+        assert result.bugs[0].source == "bug-reviewer-a,bug-reviewer-b"
 
     def test_synthesize_preserves_explicit_source_on_judged_bugs(self):
         """Judged bugs with explicit source keep their source."""
@@ -302,3 +302,28 @@ class TestSynthesizer:
         assert len(result.bugs) == 1
         assert result.bugs[0].category == "security"
         assert result.bugs[0].source == "security-reviewer"
+
+    def test_summary_includes_warning_count(self):
+        """Remediate: warning-only bugs must be counted in summary text."""
+        from src.reviewer.orchestrator import _synthesize
+
+        judged = [self._make_bug("src/a.py", 10, "warning").model_dump()]
+        ctx = self._make_context()
+
+        result = _synthesize(judged, [], [], ctx)
+        assert "1 warning bug(s)" in result.summary
+        assert "approved" in result.summary.lower()
+
+    def test_summary_includes_mixed_severities_with_warning(self):
+        """Triangulation: mixed severities including warning are all counted."""
+        from src.reviewer.orchestrator import _synthesize
+
+        judged = [
+            self._make_bug("src/a.py", 10, "critical").model_dump(),
+            self._make_bug("src/b.py", 20, "warning").model_dump(),
+        ]
+        ctx = self._make_context()
+
+        result = _synthesize(judged, [], [], ctx)
+        assert "1 critical bug(s)" in result.summary
+        assert "1 warning bug(s)" in result.summary

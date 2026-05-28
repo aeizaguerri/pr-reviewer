@@ -58,6 +58,31 @@ class TestReviewHealth:
         assert health.warnings == ["security reviewer timed out"]
 
 
+class TestBugReportSeverity:
+    def test_bug_report_severity_accepts_warning(self):
+        """1.1: BugReport.severity accepts 'warning' alongside existing literals."""
+        bug = BugReport(
+            file="src/a.py",
+            line=10,
+            severity="warning",
+            description="possible issue",
+            suggestion="check it",
+        )
+        assert bug.severity == "warning"
+
+    def test_bug_report_severity_still_accepts_critical_major_minor(self):
+        """1.1: Existing severity literals still work after extension."""
+        for sev in ("critical", "major", "minor"):
+            bug = BugReport(
+                file="src/a.py",
+                line=10,
+                severity=sev,
+                description="bug",
+                suggestion="fix",
+            )
+            assert bug.severity == sev
+
+
 class TestReviewOutputHealth:
     def test_review_output_review_health_is_optional(self):
         """1.6: ReviewOutput without review_health parses successfully."""

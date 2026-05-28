@@ -22,12 +22,10 @@ ACTIVE_PROMPT_NAMES: tuple[str, ...] = (
     "bug_reviewer_instructions",
     "security_reviewer_instructions",
     "cross_repo_impact_reviewer_instructions",
-    "bug_review_team_leader",
     "pr_review_prompt",
 )
 
 _TEMPLATE_VARIABLES: dict[str, set[str]] = {
-    "bug_review_team_leader": {"shared_prompt"},
     "pr_review_prompt": {"pr_title", "diff_text"},
 }
 

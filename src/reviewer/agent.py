@@ -222,7 +222,6 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
         "bug": provider_config,
         "security": provider_config,
         "cross_repo": provider_config,
-        "leader": provider_config,
     }
 
     return run_multi_agent_review(
@@ -272,7 +271,6 @@ def review_pr_with_config(
             "bug": provider_config,
             "security": provider_config,
             "cross_repo": provider_config,
-            "leader": provider_config,
         }
 
     return run_multi_agent_review(

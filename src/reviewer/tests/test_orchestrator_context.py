@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from src.knowledge.models import ImpactResult, ImpactWarning
 
 
@@ -162,6 +164,88 @@ class TestSafeContextDiagnostics:
         assert result["changed_paths_sample"] == paths[:5]
 
 
+class TestRunBugPass:
+    _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
+
+    def _make_context(self, shared_prompt: str = "test prompt"):
+        from src.reviewer.models import ReviewContext
+        return ReviewContext(
+            owner="owner",
+            repo="repo",
+            pr_number=1,
+            head_sha="abc123",
+            pr_title="Fix bug",
+            diff_text="### file.py\n@@ -1 +1 @@\n-patch",
+            changed_paths=["file.py"],
+            shared_prompt=shared_prompt,
+        )
+
+    @pytest.mark.anyio
+    async def test_run_bug_pass_returns_specialist_bug_output_on_success(self):
+        """1.7: _run_bug_pass returns SpecialistBugOutput on successful agent run."""
+        import json
+        from unittest.mock import MagicMock
+        from src.reviewer.orchestrator import _run_bug_pass
+
+        ctx = self._make_context()
+        mock_agent = MagicMock()
+        mock_agent.arun = MagicMock(return_value=MagicMock(
+            content=json.dumps({"bugs": []})
+        ))
+
+        result = await _run_bug_pass("bug-reviewer-a", ctx, mock_agent, timeout=10)
+        assert result.provider == "bug-reviewer-a"
+        assert result.parse_failed is False
+
+    @pytest.mark.anyio
+    async def test_run_bug_pass_returns_degraded_on_timeout(self, caplog):
+        """1.7: _run_bug_pass returns degraded output and logs warning on timeout."""
+        import asyncio
+        import logging
+        from unittest.mock import MagicMock
+        from src.reviewer.orchestrator import _run_bug_pass
+
+        ctx = self._make_context()
+        mock_agent = MagicMock()
+
+        async def slow_run(*args, **kwargs):
+            await asyncio.sleep(10)
+            return MagicMock(content="{}")
+
+        mock_agent.arun = slow_run
+
+        with caplog.at_level(logging.WARNING):
+            result = await _run_bug_pass("bug-reviewer-a", ctx, mock_agent, timeout=0.1)
+
+        assert result.provider == "bug-reviewer-a"
+        assert result.parse_failed is True
+        assert result.bugs == []
+        assert any("timed out" in r.getMessage().lower() for r in caplog.records)
+
+    @pytest.mark.anyio
+    async def test_run_bug_pass_returns_degraded_on_exception(self, caplog):
+        """1.7: _run_bug_pass returns degraded output and logs warning on exception."""
+        import logging
+        from unittest.mock import MagicMock
+        from src.reviewer.orchestrator import _run_bug_pass
+
+        ctx = self._make_context()
+        mock_agent = MagicMock()
+
+        async def failing_run(*args, **kwargs):
+            raise RuntimeError("agent exploded")
+
+        mock_agent.arun = failing_run
+
+        with caplog.at_level(logging.WARNING):
+            result = await _run_bug_pass("bug-reviewer-a", ctx, mock_agent, timeout=10)
+
+        assert result.provider == "bug-reviewer-a"
+        assert result.parse_failed is True
+        assert result.bugs == []
+        assert any("agent exploded" in r.getMessage().lower() for r in caplog.records)
+
+
 class TestSpecialistOutputLogging:
     def test_safe_output_preview_normalizes_whitespace(self):
         """Preview collapses all whitespace runs to a single space."""
@@ -266,3 +350,37 @@ class TestSpecialistOutputLogging:
         record = caplog.records[0]
         msg = record.getMessage()
         assert "findings" in msg
+
+
+class TestRoleConfigValidation:
+    @pytest.mark.anyio
+    async def test_arun_rejects_stale_leader_role_config(self):
+        """Remediate: arun_multi_agent_review must fail fast on stale 'leader' config."""
+        from src.reviewer.orchestrator import arun_multi_agent_review
+
+        bad_configs = {
+            "bug": ("m", "http://b", "k"),
+            "security": ("m", "http://b", "k"),
+            "cross_repo": ("m", "http://b", "k"),
+            "leader": ("m", "http://b", "k"),
+        }
+
+        with pytest.raises(ValueError, match="leader"):
+            await arun_multi_agent_review(
+                owner="o", repo="r", pr_number=1, role_configs=bad_configs
+            )
+
+    @pytest.mark.anyio
+    async def test_arun_rejects_missing_role_config(self):
+        """Triangulation: missing roles must also fail fast at orchestrator boundary."""
+        from src.reviewer.orchestrator import arun_multi_agent_review
+
+        incomplete = {
+            "bug": ("m", "http://b", "k"),
+            "security": ("m", "http://b", "k"),
+        }
+
+        with pytest.raises(ValueError, match="Missing"):
+            await arun_multi_agent_review(
+                owner="o", repo="r", pr_number=1, role_configs=incomplete
+            )

@@ -20,7 +20,6 @@ class TestCrossRepoReviewer:
         "bug": _PROVIDER_CONFIG,
         "security": _PROVIDER_CONFIG,
         "cross_repo": _PROVIDER_CONFIG,
-        "leader": _PROVIDER_CONFIG,
     }
 
     def _make_context(

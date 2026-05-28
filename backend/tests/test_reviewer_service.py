@@ -28,7 +28,6 @@ def test_run_review_uses_public_hf_role_configs(mock_review):
     assert "bug" in role_configs
     assert "security" in role_configs
     assert "cross_repo" in role_configs
-    assert "leader" in role_configs
     # All roles use the request-scoped HF key
     for role, (_model, _base_url, api_key) in role_configs.items():
         assert api_key == "hf-key"

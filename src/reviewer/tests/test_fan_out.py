@@ -27,7 +27,6 @@ class TestFanOut:
         "bug": _PROVIDER_CONFIG,
         "security": _PROVIDER_CONFIG,
         "cross_repo": _PROVIDER_CONFIG,
-        "leader": _PROVIDER_CONFIG,
     }
 
     def _make_context(self) -> ReviewContext:
@@ -572,7 +571,8 @@ class TestFanOut:
         # The valid bug should still surface
         assert len(result.bugs) == 1
         assert result.bugs[0].file == "file.py"
-        assert result.approved is False
+        # Single-pass bug becomes warning, so approved is True
+        assert result.approved is True
 
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator._run_bug_reviewers")
@@ -716,7 +716,6 @@ class TestFanOut:
             "bug": ("bug-model", "https://bug.url/v1", "secret-bug-key-42"),
             "security": ("sec-model", "https://sec.url/v1", "secret-sec-key-99"),
             "cross_repo": ("cross-model", "https://cross.url/v1", "secret-cross-key-77"),
-            "leader": ("leader-model", "https://leader.url/v1", "secret-leader-key-00"),
         }
 
         with patch(
@@ -738,4 +737,3 @@ class TestFanOut:
         assert "secret-bug-key-42" not in log_text
         assert "secret-sec-key-99" not in log_text
         assert "secret-cross-key-77" not in log_text
-        assert "secret-leader-key-00" not in log_text

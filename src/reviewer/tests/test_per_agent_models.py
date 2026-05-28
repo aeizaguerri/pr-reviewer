@@ -1,4 +1,4 @@
-"""Regression tests: per-role model propagation to Agno agents and Team leader."""
+"""Regression tests: per-role model propagation to Agno agents."""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -14,7 +14,7 @@ def anyio_backend():
 
 
 class TestPerAgentModels:
-    """Ensure each specialist and the Team leader receives its own explicit config."""
+    """Ensure each specialist receives its own explicit config."""
 
     def _make_context(
         self,
@@ -35,46 +35,11 @@ class TestPerAgentModels:
 
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator.Agent")
-    @patch("src.reviewer.orchestrator.Team")
-    @patch("src.reviewer.orchestrator.OpenAILike")
-    async def test_team_leader_receives_leader_role_config(
-        self, mock_openai_like, mock_team_cls, mock_agent_cls
-    ):
-        """Regression #2103: Team leader MUST get explicit OpenAILike from leader config."""
-        from src.reviewer.orchestrator import _run_bug_reviewers
-
-        ctx = self._make_context()
-        role_configs = {
-            "bug": ("bug-model", "https://bug.url/v1", "bug-key"),
-            "security": ("sec-model", "https://sec.url/v1", "sec-key"),
-            "cross_repo": ("cross-model", "https://cross.url/v1", "cross-key"),
-            "leader": ("leader-model", "https://leader.url/v1", "leader-key"),
-        }
-
-        mock_team = MagicMock()
-        mock_team_cls.return_value = mock_team
-        mock_msg_a = MagicMock(agent_id="bug-reviewer-a", content=json.dumps({"bugs": []}))
-        mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
-        mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
-
-        await _run_bug_reviewers(ctx, role_configs, supports_structured_output=True)
-
-        # Leader must receive leader-role config explicitly
-        leader_model_call = mock_openai_like.call_args_list[-1]
-        assert leader_model_call.kwargs == {
-            "id": "leader-model",
-            "base_url": "https://leader.url/v1",
-            "api_key": "leader-key",
-        }
-
-    @pytest.mark.anyio
-    @patch("src.reviewer.orchestrator.Agent")
-    @patch("src.reviewer.orchestrator.Team")
     @patch("src.reviewer.orchestrator.OpenAILike")
     async def test_bug_agents_receive_bug_role_config(
-        self, mock_openai_like, mock_team_cls, mock_agent_cls
+        self, mock_openai_like, mock_agent_cls
     ):
-        """Bug A/B agents MUST use bug-role model, not leader or any fallback."""
+        """Bug A/B agents MUST use bug-role model."""
         from src.reviewer.orchestrator import _run_bug_reviewers
 
         ctx = self._make_context()
@@ -82,14 +47,11 @@ class TestPerAgentModels:
             "bug": ("bug-model", "https://bug.url/v1", "bug-key"),
             "security": ("sec-model", "https://sec.url/v1", "sec-key"),
             "cross_repo": ("cross-model", "https://cross.url/v1", "cross-key"),
-            "leader": ("leader-model", "https://leader.url/v1", "leader-key"),
         }
 
-        mock_team = MagicMock()
-        mock_team_cls.return_value = mock_team
-        mock_msg_a = MagicMock(agent_id="bug-reviewer-a", content=json.dumps({"bugs": []}))
-        mock_msg_b = MagicMock(agent_id="bug-reviewer-b", content=json.dumps({"bugs": []}))
-        mock_team.run.return_value = MagicMock(member_responses=[mock_msg_a, mock_msg_b])
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_agent.arun = MagicMock(return_value=MagicMock(content=json.dumps({"bugs": []})))
 
         await _run_bug_reviewers(ctx, role_configs, supports_structured_output=True)
 
@@ -114,7 +76,6 @@ class TestPerAgentModels:
             "bug": ("bug-model", "https://bug.url/v1", "bug-key"),
             "security": ("sec-model", "https://sec.url/v1", "sec-key"),
             "cross_repo": ("cross-model", "https://cross.url/v1", "cross-key"),
-            "leader": ("leader-model", "https://leader.url/v1", "leader-key"),
         }
 
         mock_agent = MagicMock()
@@ -161,7 +122,6 @@ class TestPerAgentModels:
             "bug": ("bug-model", "https://bug.url/v1", "bug-key"),
             "security": ("sec-model", "https://sec.url/v1", "sec-key"),
             "cross_repo": ("cross-model", "https://cross.url/v1", "cross-key"),
-            "leader": ("leader-model", "https://leader.url/v1", "leader-key"),
         }
 
         mock_agent = MagicMock()
@@ -206,7 +166,6 @@ class TestPerAgentModels:
             "bug": ("bug-model", "https://bug.url/v1", "bug-key"),
             "security": ("sec-model", "https://sec.url/v1", "sec-key"),
             "cross_repo": ("cross-model", "https://cross.url/v1", "cross-key"),
-            "leader": ("leader-model", "https://leader.url/v1", "leader-key"),
         }
 
         with patch(

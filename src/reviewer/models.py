@@ -8,9 +8,9 @@ from src.knowledge.models import ImpactResult, ImpactWarning
 class BugReport(BaseModel):
     file: str = Field(..., description="Path to the file containing the bug")
     line: int = Field(..., description="Line number where the bug occurs")
-    severity: Literal["critical", "major", "minor"] = Field(
+    severity: Literal["critical", "major", "minor", "warning"] = Field(
         ...,
-        description="Bug severity: critical (data loss/security), major (broken logic), minor (style/performance)",
+        description="Bug severity: critical (data loss/security), major (broken logic), minor (style/performance), warning (single-pass detection)",
     )
     description: str = Field(..., description="Clear description of the bug found")
     suggestion: str = Field(..., description="Concrete suggestion to fix the bug")

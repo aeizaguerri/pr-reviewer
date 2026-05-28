@@ -24,7 +24,6 @@ class TestSecurityReviewer:
         "bug": _PROVIDER_CONFIG,
         "security": _PROVIDER_CONFIG,
         "cross_repo": _PROVIDER_CONFIG,
-        "leader": _PROVIDER_CONFIG,
     }
 
     def _make_context(self, shared_prompt: str = "test prompt") -> ReviewContext:

@@ -10,15 +10,12 @@ import inspect
 import json
 import logging
 import re
-from collections.abc import Iterable
 from typing import Any
 
 from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
-from agno.team import Team
 
 from src.core.config import Config
-from src.core.observability import render_prompt
 from src.reviewer.agent import (
     _bugs_to_comments,
     _enrich_with_graph,
@@ -338,18 +335,22 @@ def _parse_specialist_impact_output(
     return out
 
 
-def _iter_team_messages(run: Any) -> Iterable[Any]:
-    """Yield team/member messages from either mocked or real Agno responses.
-
-    Prefer ``member_responses`` (RunOutput objects with reliable ``agent_id``)
-    over ``messages`` (Message objects where the agent identifier is less
-    predictable). This aligns with real Agno Team behaviour.
-    """
-    for attr in ("member_responses", "messages"):
-        messages = getattr(run, attr, None)
-        if messages:
-            yield from messages
-            return
+async def _run_bug_pass(
+    agent_id: str,
+    ctx: ReviewContext,
+    agent: Agent,
+    timeout: int,
+) -> SpecialistBugOutput:
+    """Run a single bug reviewer pass with timeout and exception handling."""
+    try:
+        run = await asyncio.wait_for(_maybe_await(agent.arun(ctx.shared_prompt)), timeout=timeout)
+        return _parse_specialist_bug_output(_content_to_raw(run.content), agent_id, ctx)
+    except asyncio.TimeoutError:
+        logger.warning("Bug reviewer %s timed out after %ds", agent_id, timeout)
+        return SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="", parse_failed=True)
+    except Exception as exc:
+        logger.warning("Bug reviewer %s failed: %s", agent_id, exc)
+        return SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="", parse_failed=True)
 
 
 async def _run_bug_reviewers(
@@ -357,11 +358,9 @@ async def _run_bug_reviewers(
     role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
 ) -> tuple[SpecialistBugOutput, SpecialistBugOutput]:
-    """Run blind Bug Reviewer A/B using an Agno Team broadcast."""
+    """Run blind Bug Reviewer A/B using direct async agent calls."""
     schema = SpecialistBugPayload if supports_structured_output else None
     bug_config = role_configs["bug"]
-    leader_config = role_configs["leader"]
-    leader_model_id, leader_base_url, leader_api_key = leader_config
     agent_a = _build_agent(
         agent_id="bug-reviewer-a",
         instructions=BUG_REVIEWER_INSTRUCTIONS,
@@ -375,48 +374,21 @@ async def _run_bug_reviewers(
         output_schema=schema,
     )
 
-    leader_prompt = render_prompt("bug_review_team_leader", shared_prompt=ctx.shared_prompt)
-    team = Team(
-        id="bug-review-team",
-        model=OpenAILike(id=leader_model_id, base_url=leader_base_url, api_key=leader_api_key),
-        mode="broadcast",
-        members=[agent_a, agent_b],
-        instructions=leader_prompt,
-        share_member_interactions=False,
-        show_members_responses=True,
+    timeout = Config.REVIEW_SPECIALIST_TIMEOUT_SECONDS
+    results = await asyncio.gather(
+        _run_bug_pass("bug-reviewer-a", ctx, agent_a, timeout=timeout),
+        _run_bug_pass("bug-reviewer-b", ctx, agent_b, timeout=timeout),
+        return_exceptions=True,
     )
 
-    async def collect_outputs(run_result: Any) -> dict[str, SpecialistBugOutput]:
-        collected: dict[str, SpecialistBugOutput] = {}
-        for msg in _iter_team_messages(run_result):
-            agent_id = (
-                getattr(msg, "agent_id", None)
-                or getattr(msg, "agent_name", None)
-                or getattr(msg, "name", None)
-            )
-            if agent_id not in {"bug-reviewer-a", "bug-reviewer-b"}:
-                continue
-            content = getattr(msg, "content", "")
-            raw = _content_to_raw(content)
-            collected[agent_id] = _parse_specialist_bug_output(raw, agent_id, ctx)
-        return collected
-
     outputs: dict[str, SpecialistBugOutput] = {}
-    if hasattr(team, "arun"):
-        run = await _maybe_await(team.arun(ctx.shared_prompt))
-        outputs = await collect_outputs(run)
+    for agent_id, result in zip(("bug-reviewer-a", "bug-reviewer-b"), results):
+        if isinstance(result, BaseException):
+            logger.warning("Bug reviewer %s raised exception: %s", agent_id, result)
+            outputs[agent_id] = SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="", parse_failed=True)
+        else:
+            outputs[agent_id] = result
 
-    # Mocked teams and some Agno versions expose only sync `run`; fallback when
-    # async output didn't include member responses.
-    if len(outputs) < 2 and hasattr(team, "run"):
-        run = await asyncio.to_thread(team.run, ctx.shared_prompt)
-        outputs = await collect_outputs(run)
-
-    if len(outputs) < 2:
-        logger.warning("Expected 2 bug reviewer outputs, got %d", len(outputs))
-    for agent_id in ("bug-reviewer-a", "bug-reviewer-b"):
-        if agent_id not in outputs:
-            outputs[agent_id] = SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="")
     return outputs["bug-reviewer-a"], outputs["bug-reviewer-b"]
 
 
@@ -510,6 +482,31 @@ _BUG_KEY_MODIFIERS = {
 }
 
 
+_BUG_TEXT_STOPWORDS = _BUG_KEY_MODIFIERS | {
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+}
+
+
 def _bug_semantic_key(description: str) -> str:
     """Extract a loose semantic category signal that collapses wording variants."""
     words = re.findall(r"[a-zA-Z]+", description)
@@ -520,37 +517,110 @@ def _bug_semantic_key(description: str) -> str:
     return description.lower().strip()
 
 
+def _normalize_bug_token(token: str) -> str:
+    """Normalize a token just enough for deterministic overlap checks."""
+    normalized = token.lower()
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(normalized) > 4 and normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+            break
+    return normalized
+
+
+def _bug_text_tokens(record: dict) -> set[str]:
+    """Return informative normalized tokens from description + suggestion."""
+    text = f'{record.get("description", "")} {record.get("suggestion", "")}'
+    tokens = {
+        _normalize_bug_token(token)
+        for token in re.findall(r"[a-zA-Z]+", text)
+    }
+    return {token for token in tokens if len(token) >= 3 and token not in _BUG_TEXT_STOPWORDS}
+
+
+def _same_bug_finding(left: dict, right: dict, *, line_tolerance: int = 30) -> bool:
+    """Match the same root bug across blind passes without relying on exact lines."""
+    if left.get("file") != right.get("file"):
+        return False
+
+    line_distance = abs(int(left.get("line", 0)) - int(right.get("line", 0)))
+    if line_distance > line_tolerance:
+        return False
+
+    left_semantic = _bug_semantic_key(left.get("description", ""))
+    right_semantic = _bug_semantic_key(right.get("description", ""))
+    if left_semantic and left_semantic == right_semantic:
+        return True
+
+    shared_tokens = _bug_text_tokens(left) & _bug_text_tokens(right)
+    if line_distance == 0:
+        return len(shared_tokens) >= 1
+
+    return len(shared_tokens) >= 2
+
+
 def _run_judge(
     output_a: SpecialistBugOutput,
     output_b: SpecialistBugOutput,
     ctx: ReviewContext,
 ) -> list[dict]:
-    """Deduplicate Bug Reviewer A and B outputs, return list of BugReport-shaped dicts."""
-    all_bugs: list[SpecialistBugOutput] = [output_a, output_b]
+    """Deduplicate Bug Reviewer A and B outputs, return list of BugReport-shaped dicts.
 
-    bug_records: list[dict] = []
-    for specialist in all_bugs:
-        for bug in specialist.bugs:
-            bug_records.append(bug.model_dump(mode="json"))
+    Consensus severity:
+    - Same bug key found by both passes -> severity 'critical', source lists both.
+    - Bug key found by only one pass -> severity 'warning', source lists detecting pass.
+    """
+    severity_order = {"warning": 0, "minor": 1, "major": 2, "critical": 3}
 
-    # Deterministic dedupe key is (file, line, semantic_key) so same-location
-    # findings collapse when wording variants describe the same bug type,
-    # but distinct bugs on the same line are preserved.
-    seen: dict[tuple[str, int, str], dict] = {}
-    for record in bug_records:
-        key = (record["file"], record["line"], _bug_semantic_key(record["description"]))
-        if key not in seen:
-            seen[key] = record
+    grouped_findings: list[dict[str, Any]] = []
+    bug_records = [
+        (pass_id, bug.model_dump(mode="json"))
+        for pass_id, output in (("bug-reviewer-a", output_a), ("bug-reviewer-b", output_b))
+        for bug in output.bugs
+    ]
+    bug_records.sort(
+        key=lambda item: (
+            item[1].get("file", ""),
+            int(item[1].get("line", 0)),
+            item[1].get("description", ""),
+            item[1].get("suggestion", ""),
+            item[0],
+        )
+    )
+
+    for pass_id, record in bug_records:
+        matched_group = next(
+            (group for group in grouped_findings if _same_bug_finding(group["record"], record)),
+            None,
+        )
+        if matched_group is None:
+            grouped_findings.append({"record": record, "passes": {pass_id}})
+            continue
+
+        matched_group["passes"].add(pass_id)
+        existing = matched_group["record"]
+        if severity_order.get(record["severity"], 0) > severity_order.get(existing["severity"], 0):
+            existing["severity"] = record["severity"]
+        for field in ("description", "suggestion"):
+            incoming_value = record.get(field, "")
+            if incoming_value and incoming_value not in existing.get(field, ""):
+                if existing.get(field):
+                    existing[field] = f'{existing[field]}; {incoming_value}'
+                else:
+                    existing[field] = incoming_value
+
+    results: list[dict] = []
+    for group in grouped_findings:
+        record = group["record"]
+        passes = group["passes"]
+        if len(passes) == 2:
+            record["severity"] = "critical"
+            record["source"] = "bug-reviewer-a,bug-reviewer-b"
         else:
-            # Escalate severity on conflict
-            severity_order = {"minor": 0, "major": 1, "critical": 2}
-            existing = seen[key]
-            if severity_order.get(record["severity"], 0) > severity_order.get(
-                existing["severity"], 0
-            ):
-                seen[key] = record
+            record["severity"] = "warning"
+            record["source"] = next(iter(passes))
+        results.append(record)
 
-    return list(seen.values())
+    return results
 
 
 def _ground_impact_warnings(
@@ -678,7 +748,7 @@ def _synthesize(
         key = (bug_dict["file"], bug_dict["line"])
         bug_dict.setdefault("category", "bug")
         if not bug_dict.get("source"):
-            bug_dict["source"] = "bug-reviewer-team"
+            bug_dict["source"] = "bug-reviewer-a,bug-reviewer-b"
         if key not in merged:
             merged[key] = dict(bug_dict)
         else:
@@ -704,7 +774,7 @@ def _synthesize(
     # Build summary
     if all_bugs:
         bug_summaries = []
-        for severity in ["critical", "major", "minor"]:
+        for severity in ["critical", "major", "minor", "warning"]:
             count = sum(1 for b in all_bugs if b.severity == severity)
             if count:
                 bug_summaries.append(f"{count} {severity} bug(s)")
@@ -796,6 +866,8 @@ async def arun_multi_agent_review(
     supports_structured_output: bool = True,
 ) -> ReviewOutput:
     """Async core for the multi-agent review pipeline."""
+    Config._validate_role_configs(role_configs)
+
     # Step 1: fetch once
     diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number, github_token=github_token)
 
@@ -848,7 +920,7 @@ async def arun_multi_agent_review(
         return_exceptions=True,
     )
 
-    # Normalize Bug Team result
+    # Normalize bug reviewer pair result
     bug_a = SpecialistBugOutput(bugs=[])
     bug_b = SpecialistBugOutput(bugs=[])
     bug_failed = False

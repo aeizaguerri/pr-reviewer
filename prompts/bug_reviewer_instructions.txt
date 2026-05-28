@@ -31,6 +31,38 @@ A changed function now returns before saving state when `items` is empty, but em
 Invalid finding:
 “This code could be cleaner” or “this might be hard to maintain” without a concrete failure path is not a bug.
 
-Output:
-Return plain JSON only; do not wrap in markdown code fences or prose.
-Return a JSON object matching the SpecialistBugOutput schema.
+Output contract:
+- Return ONLY valid JSON.
+- Do NOT include markdown fences.
+- Do NOT include prose before or after JSON.
+- Do NOT rename fields.
+- Do NOT omit required fields.
+- Use an empty array when there are no findings.
+- Top-level object: exactly one key named `bugs`.
+- Each finding object must use these fields: `file`, `line`, `severity`, `description`, `suggestion`, `category`.
+- `severity` must be one of: `critical`, `major`, `minor`.
+- Do NOT use `warning` here. `warning` is reserved for later aggregation.
+- Set `category` to `bug` for every finding.
+- Do NOT include invented fields such as `type`, `provider`, `raw_content`, or `parse_failed`.
+
+Exact JSON shape:
+```json
+{"bugs":[{"file":"path/to/file.py","line":123,"severity":"major","description":"Concrete incorrect behavior introduced by the diff.","suggestion":"Concrete fix for the incorrect behavior.","category":"bug"}]}
+```
+
+Valid finding output example:
+```json
+{"bugs":[{"file":"src/orders/service.py","line":87,"severity":"major","description":"The new early return skips persisting an empty order list, so a valid request leaves stale data in storage.","suggestion":"Persist the empty list before returning so state stays synchronized.","category":"bug"}]}
+```
+
+Empty-output example:
+```json
+{"bugs":[]}
+```
+
+Invalid outputs to avoid:
+- Wrong top-level key casing: `{"Bugs":[]}`
+- Invented field: `{"bugs":[{"type":"bug"}]}`
+- Missing required fields: `{"bugs":[{"file":"a.py","line":1}]}`
+- Invalid severity for this reviewer: `{"bugs":[{"file":"a.py","line":1,"severity":"warning","description":"...","suggestion":"...","category":"bug"}]}`
+- Any wrapper text such as `Here is the JSON:` or trailing explanation after the JSON object
