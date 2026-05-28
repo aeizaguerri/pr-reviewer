@@ -25,5 +25,34 @@ The diff removes field `status` from an API response, and the impact section sho
 Invalid impact:
 “This might affect other services” without named downstream evidence is not enough.
 
-Output:
-Return a JSON object matching the SpecialistImpactOutput schema.
+Output contract:
+- Return ONLY valid JSON.
+- Do NOT include markdown fences.
+- Do NOT include prose before or after JSON.
+- Do NOT rename fields.
+- Do NOT omit required fields.
+- Use an empty array when there are no findings.
+- Top-level object: exactly one key named `impact_warnings`.
+- Each warning object must use these fields: `changed_file`, `changed_entity`, `affected_service`, `affected_repository`, `relationship_type`, `severity`, `description`.
+- Do NOT include invented fields such as `type`, `provider`, `raw_content`, or `parse_failed`.
+
+Exact JSON shape:
+```json
+{"impact_warnings":[{"changed_file":"path/to/file.py","changed_entity":"ContractName","affected_service":"consumer-service","affected_repository":"consumer-repo","relationship_type":"CONSUMES","severity":"high","description":"Concrete downstream break backed by the provided impact evidence."}]}
+```
+
+Valid finding output example:
+```json
+{"impact_warnings":[{"changed_file":"api/schema/order.json","changed_entity":"Order.status","affected_service":"frontend-dashboard","affected_repository":"frontend-dashboard","relationship_type":"CONSUMES","severity":"high","description":"The diff removes Order.status, and the provided impact analysis shows frontend-dashboard consumes that field, so the response contract change can break the downstream UI."}]}
+```
+
+Empty-output example:
+```json
+{"impact_warnings":[]}
+```
+
+Invalid outputs to avoid:
+- Wrong top-level key casing: `{"ImpactWarnings":[]}`
+- Invented field: `{"impact_warnings":[{"type":"impact"}]}`
+- Missing required fields: `{"impact_warnings":[{"changed_file":"a.py"}]}`
+- Any wrapper text such as `Here is the JSON:` or trailing explanation after the JSON object

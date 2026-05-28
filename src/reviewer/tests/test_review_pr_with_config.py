@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import pytest
 
 from src.reviewer.models import ReviewOutput
 
@@ -80,6 +81,33 @@ class TestReviewPrWithConfig:
         review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
 
         mock_post.assert_not_called()
+
+    def test_rejects_stale_leader_role_config(self):
+        """Remediate: review_pr_with_config must fail fast when role_configs contains 'leader'."""
+        from src.reviewer.agent import review_pr_with_config
+
+        bad_configs = {
+            "bug": self._PROVIDER_CONFIG,
+            "security": self._PROVIDER_CONFIG,
+            "cross_repo": self._PROVIDER_CONFIG,
+            "leader": self._PROVIDER_CONFIG,
+        }
+
+        with pytest.raises(ValueError, match="leader"):
+            review_pr_with_config(
+                "owner", "repo", 1, self._PROVIDER_CONFIG, role_configs=bad_configs
+            )
+
+    def test_rejects_leader_only_role_config(self):
+        """Triangulation: leader-only config must also fail fast."""
+        from src.reviewer.agent import review_pr_with_config
+
+        bad_configs = {"leader": self._PROVIDER_CONFIG}
+
+        with pytest.raises(ValueError, match="leader"):
+            review_pr_with_config(
+                "owner", "repo", 1, self._PROVIDER_CONFIG, role_configs=bad_configs
+            )
 
 
 # ---------------------------------------------------------------------------

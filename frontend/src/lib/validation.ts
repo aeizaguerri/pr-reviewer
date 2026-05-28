@@ -3,11 +3,8 @@ import type { ReviewRequest } from "../api/types";
 export type ReviewFormInput = {
 	repoSlug: string;
 	prNumber: string;
-	provider: string;
 	providerApiKey: string;
 	githubToken: string;
-	model: string;
-	baseUrlOverride: string;
 };
 
 export type ReviewFormErrors = Partial<Record<keyof ReviewFormInput, string>>;
@@ -38,26 +35,10 @@ export function parseRepoSlug(
 	return { owner, repo };
 }
 
-function providerAllowsEmptyApiKey(provider: string): boolean {
-	return provider.trim().toLowerCase() === "ollama";
-}
-
-function backendProviderApiKey(
-	provider: string,
-	providerApiKey: string,
-): string {
-	if (providerAllowsEmptyApiKey(provider) && !providerApiKey) {
-		return "ollama";
-	}
-
-	return providerApiKey;
-}
-
 export function validateReviewForm(input: ReviewFormInput): ValidationResult {
 	const errors: ReviewFormErrors = {};
 	const repoParts = parseRepoSlug(input.repoSlug);
 	const prNumber = Number(input.prNumber);
-	const provider = input.provider.trim();
 	const providerApiKey = input.providerApiKey.trim();
 	const githubToken = input.githubToken.trim();
 
@@ -69,12 +50,8 @@ export function validateReviewForm(input: ReviewFormInput): ValidationResult {
 		errors.prNumber = "PR number must be a positive integer.";
 	}
 
-	if (!provider) {
-		errors.provider = "Choose a provider.";
-	}
-
-	if (provider && !providerAllowsEmptyApiKey(provider) && !providerApiKey) {
-		errors.providerApiKey = "Provider API key is required.";
+	if (!providerApiKey) {
+		errors.providerApiKey = "Hugging Face API key is required.";
 	}
 
 	if (!githubToken) {
@@ -92,11 +69,8 @@ export function validateReviewForm(input: ReviewFormInput): ValidationResult {
 				owner: repoParts.owner,
 				repo: repoParts.repo,
 				pr_number: prNumber,
-				provider,
-				model: input.model.trim(),
-				base_url_override: input.baseUrlOverride.trim(),
 			},
-			providerApiKey: backendProviderApiKey(provider, providerApiKey),
+			providerApiKey,
 			githubToken,
 		},
 	};

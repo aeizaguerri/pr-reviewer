@@ -10,15 +10,12 @@ import inspect
 import json
 import logging
 import re
-from collections.abc import Iterable
 from typing import Any
 
 from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
-from agno.team import Team
 
 from src.core.config import Config
-from src.core.observability import render_prompt
 from src.reviewer.agent import (
     _bugs_to_comments,
     _enrich_with_graph,
@@ -99,6 +96,24 @@ def build_review_context(
     )
 
 
+def _safe_context_summary(
+    diff_text: str,
+    shared_prompt: str,
+    changed_paths: list[str],
+) -> dict[str, Any]:
+    """Return safe diagnostics for context delivery.
+
+    Exposes lengths, counts, and a bounded path sample.  Never includes
+    full diff bodies or secret-bearing raw content.
+    """
+    return {
+        "diff_text_length": len(diff_text),
+        "shared_prompt_length": len(shared_prompt),
+        "changed_paths_count": len(changed_paths),
+        "changed_paths_sample": changed_paths[:5],
+    }
+
+
 def _build_agent(
     *,
     agent_id: str,
@@ -125,10 +140,113 @@ def _content_to_raw(content: Any) -> str:
     return json.dumps(content)
 
 
-def _specialist_payload_dict(raw: str) -> dict[str, Any]:
-    data = json.loads(raw)
+def _extract_json_object_text(raw: str) -> str:
+    """Return the best JSON object text found in *raw*.
+
+    Tries direct JSON first, then fenced markdown blocks, then a balanced
+    brace scan. Raises ``ValueError`` when nothing looks like a JSON object.
+    """
+    # 1. Direct parse — succeeds for clean JSON
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Markdown fence extraction (try every fence, skip invalid)
+    fence_matches = re.findall(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL)
+    for candidate in fence_matches:
+        candidate = candidate.strip()
+        if candidate:
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+
+    # 3. Balanced first-object scan (string-aware)
+    start = raw.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in response")
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(raw[start:], start=start):
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = False
+                continue
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = raw[start : i + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    break
+                break
+    raise ValueError("No valid JSON object found in response")
+
+
+def _parse_specialist_payload_json(raw: str) -> dict[str, Any]:
+    """Extract and parse a JSON object from *raw*, returning a dict.
+
+    Raises on failure so existing catch blocks handle degradation.
+    """
+    text = _extract_json_object_text(raw)
+    data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Specialist output must be a JSON object")
+    return data
+
+
+def _safe_output_preview(raw: str, max_length: int = 200) -> str:
+    """Return a whitespace-normalized, bounded preview of raw output."""
+    preview = " ".join(raw.split())
+    if len(preview) > max_length:
+        preview = preview[:max_length] + "..."
+    return preview
+
+
+def _log_specialist_output(
+    role: str,
+    raw: str,
+    payload: dict[str, Any] | None = None,
+    parse_failed: bool = False,
+    bug_count: int | None = None,
+    impact_count: int | None = None,
+) -> None:
+    """Log safe specialist output diagnostics at INFO level."""
+    extra: dict[str, Any] = {
+        "role": role,
+        "raw_length": len(raw),
+        "preview": _safe_output_preview(raw),
+        "parse_failed": parse_failed,
+    }
+    if payload is not None:
+        extra["top_level_keys"] = list(payload.keys())
+    if bug_count is not None:
+        extra["bug_count"] = bug_count
+    if impact_count is not None:
+        extra["impact_count"] = impact_count
+    logger.info("Specialist output: %s", extra)
+
+
+def _specialist_payload_dict(raw: str) -> dict[str, Any]:
+    data = _parse_specialist_payload_json(raw)
     cleaned = dict(data)
     for key in ("provider", "raw_content", "parse_failed"):
         cleaned.pop(key, None)
@@ -136,12 +254,25 @@ def _specialist_payload_dict(raw: str) -> dict[str, Any]:
 
 
 def _parse_specialist_bug_output(raw: str, role: str, ctx: ReviewContext) -> SpecialistBugOutput:
+    payload_dict: dict[str, Any] | None = None
     try:
-        payload = SpecialistBugPayload(**_specialist_payload_dict(raw))
+        payload_dict = _parse_specialist_payload_json(raw)
+        cleaned = dict(payload_dict)
+        for key in ("provider", "raw_content", "parse_failed"):
+            cleaned.pop(key, None)
+        payload = SpecialistBugPayload(**cleaned)
         out = SpecialistBugOutput(bugs=payload.bugs)
     except Exception:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
+        _log_specialist_output(role=role, raw=raw, payload=payload_dict, parse_failed=True)
         return SpecialistBugOutput(bugs=[], provider=role, raw_content=raw, parse_failed=True)
+    _log_specialist_output(
+        role=role,
+        raw=raw,
+        payload=payload_dict,
+        parse_failed=False,
+        bug_count=len(out.bugs),
+    )
     out.provider = role
     out.raw_content = raw
     return out
@@ -150,108 +281,120 @@ def _parse_specialist_bug_output(raw: str, role: str, ctx: ReviewContext) -> Spe
 def _parse_specialist_security_output(
     raw: str, ctx: ReviewContext
 ) -> SpecialistSecurityOutput | SpecialistFailure:
+    payload_dict: dict[str, Any] | None = None
     try:
-        payload = SpecialistSecurityPayload(**_specialist_payload_dict(raw))
-        return SpecialistSecurityOutput(bugs=payload.bugs, raw_content=raw)
+        payload_dict = _parse_specialist_payload_json(raw)
+        cleaned = dict(payload_dict)
+        for key in ("provider", "raw_content", "parse_failed"):
+            cleaned.pop(key, None)
+        payload = SpecialistSecurityPayload(**cleaned)
+        out = SpecialistSecurityOutput(bugs=payload.bugs, raw_content=raw)
     except Exception as exc:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
+        _log_specialist_output(
+            role="security-reviewer", raw=raw, payload=payload_dict, parse_failed=True
+        )
         return SpecialistFailure(role="security-reviewer", reason=f"parse failure: {exc}")
+    _log_specialist_output(
+        role="security-reviewer",
+        raw=raw,
+        payload=payload_dict,
+        parse_failed=False,
+        bug_count=len(out.bugs),
+    )
+    return out
 
 
 def _parse_specialist_impact_output(
     raw: str, ctx: ReviewContext
 ) -> SpecialistImpactOutput | SpecialistFailure:
+    payload_dict: dict[str, Any] | None = None
     try:
-        payload = SpecialistImpactPayload(**_specialist_payload_dict(raw))
-        return SpecialistImpactOutput(impact_warnings=payload.impact_warnings, raw_content=raw)
+        payload_dict = _parse_specialist_payload_json(raw)
+        cleaned = dict(payload_dict)
+        for key in ("provider", "raw_content", "parse_failed"):
+            cleaned.pop(key, None)
+        payload = SpecialistImpactPayload(**cleaned)
+        out = SpecialistImpactOutput(impact_warnings=payload.impact_warnings, raw_content=raw)
     except Exception as exc:
         _log_full_llm_response(raw, ctx.owner, ctx.repo, ctx.pr_number)
+        _log_specialist_output(
+            role="cross-repo-impact-reviewer",
+            raw=raw,
+            payload=payload_dict,
+            parse_failed=True,
+        )
         return SpecialistFailure(role="cross-repo-impact-reviewer", reason=f"parse failure: {exc}")
+    _log_specialist_output(
+        role="cross-repo-impact-reviewer",
+        raw=raw,
+        payload=payload_dict,
+        parse_failed=False,
+        impact_count=len(out.impact_warnings),
+    )
+    return out
 
 
-def _iter_team_messages(run: Any) -> Iterable[Any]:
-    """Yield team/member messages from either mocked or real Agno responses.
-
-    Prefer ``member_responses`` (RunOutput objects with reliable ``agent_id``)
-    over ``messages`` (Message objects where the agent identifier is less
-    predictable). This aligns with real Agno Team behaviour.
-    """
-    for attr in ("member_responses", "messages"):
-        messages = getattr(run, attr, None)
-        if messages:
-            yield from messages
-            return
+async def _run_bug_pass(
+    agent_id: str,
+    ctx: ReviewContext,
+    agent: Agent,
+    timeout: int,
+) -> SpecialistBugOutput:
+    """Run a single bug reviewer pass with timeout and exception handling."""
+    try:
+        run = await asyncio.wait_for(_maybe_await(agent.arun(ctx.shared_prompt)), timeout=timeout)
+        return _parse_specialist_bug_output(_content_to_raw(run.content), agent_id, ctx)
+    except asyncio.TimeoutError:
+        logger.warning("Bug reviewer %s timed out after %ds", agent_id, timeout)
+        return SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="", parse_failed=True)
+    except Exception as exc:
+        logger.warning("Bug reviewer %s failed: %s", agent_id, exc)
+        return SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="", parse_failed=True)
 
 
 async def _run_bug_reviewers(
     ctx: ReviewContext,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
 ) -> tuple[SpecialistBugOutput, SpecialistBugOutput]:
-    """Run blind Bug Reviewer A/B using an Agno Team broadcast."""
+    """Run blind Bug Reviewer A/B using direct async agent calls."""
     schema = SpecialistBugPayload if supports_structured_output else None
-    model_id, base_url, api_key = provider_config
+    bug_config = role_configs["bug"]
     agent_a = _build_agent(
         agent_id="bug-reviewer-a",
         instructions=BUG_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=bug_config,
         output_schema=schema,
     )
     agent_b = _build_agent(
         agent_id="bug-reviewer-b",
         instructions=BUG_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=bug_config,
         output_schema=schema,
     )
 
-    leader_prompt = render_prompt("bug_review_team_leader", shared_prompt=ctx.shared_prompt)
-    team = Team(
-        id="bug-review-team",
-        model=OpenAILike(id=model_id, base_url=base_url, api_key=api_key),
-        mode="broadcast",
-        members=[agent_a, agent_b],
-        instructions=leader_prompt,
-        share_member_interactions=False,
-        show_members_responses=True,
+    timeout = Config.REVIEW_SPECIALIST_TIMEOUT_SECONDS
+    results = await asyncio.gather(
+        _run_bug_pass("bug-reviewer-a", ctx, agent_a, timeout=timeout),
+        _run_bug_pass("bug-reviewer-b", ctx, agent_b, timeout=timeout),
+        return_exceptions=True,
     )
 
-    async def collect_outputs(run_result: Any) -> dict[str, SpecialistBugOutput]:
-        collected: dict[str, SpecialistBugOutput] = {}
-        for msg in _iter_team_messages(run_result):
-            agent_id = (
-                getattr(msg, "agent_id", None)
-                or getattr(msg, "agent_name", None)
-                or getattr(msg, "name", None)
-            )
-            if agent_id not in {"bug-reviewer-a", "bug-reviewer-b"}:
-                continue
-            content = getattr(msg, "content", "")
-            raw = _content_to_raw(content)
-            collected[agent_id] = _parse_specialist_bug_output(raw, agent_id, ctx)
-        return collected
-
     outputs: dict[str, SpecialistBugOutput] = {}
-    if hasattr(team, "arun"):
-        run = await _maybe_await(team.arun(ctx.shared_prompt))
-        outputs = await collect_outputs(run)
+    for agent_id, result in zip(("bug-reviewer-a", "bug-reviewer-b"), results):
+        if isinstance(result, BaseException):
+            logger.warning("Bug reviewer %s raised exception: %s", agent_id, result)
+            outputs[agent_id] = SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="", parse_failed=True)
+        else:
+            outputs[agent_id] = result
 
-    # Mocked teams and some Agno versions expose only sync `run`; fallback when
-    # async output didn't include member responses.
-    if len(outputs) < 2 and hasattr(team, "run"):
-        run = await asyncio.to_thread(team.run, ctx.shared_prompt)
-        outputs = await collect_outputs(run)
-
-    if len(outputs) < 2:
-        logger.warning("Expected 2 bug reviewer outputs, got %d", len(outputs))
-    for agent_id in ("bug-reviewer-a", "bug-reviewer-b"):
-        if agent_id not in outputs:
-            outputs[agent_id] = SpecialistBugOutput(bugs=[], provider=agent_id, raw_content="")
     return outputs["bug-reviewer-a"], outputs["bug-reviewer-b"]
 
 
 async def _run_security_reviewer(
     ctx: ReviewContext,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
     timeout: int,
 ) -> SpecialistSecurityOutput | SpecialistFailure:
@@ -259,7 +402,7 @@ async def _run_security_reviewer(
     agent = _build_agent(
         agent_id="security-reviewer",
         instructions=SECURITY_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=role_configs["security"],
         output_schema=SpecialistSecurityPayload if supports_structured_output else None,
     )
     try:
@@ -275,7 +418,7 @@ async def _run_security_reviewer(
 
 async def _run_cross_repo_reviewer(
     ctx: ReviewContext,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     supports_structured_output: bool,
     timeout: int,
 ) -> SpecialistImpactOutput | SpecialistFailure:
@@ -286,7 +429,7 @@ async def _run_cross_repo_reviewer(
     agent = _build_agent(
         agent_id="cross-repo-impact-reviewer",
         instructions=CROSS_REPO_IMPACT_REVIEWER_INSTRUCTIONS,
-        provider_config=provider_config,
+        provider_config=role_configs["cross_repo"],
         output_schema=SpecialistImpactPayload if supports_structured_output else None,
     )
     try:
@@ -339,6 +482,31 @@ _BUG_KEY_MODIFIERS = {
 }
 
 
+_BUG_TEXT_STOPWORDS = _BUG_KEY_MODIFIERS | {
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+}
+
+
 def _bug_semantic_key(description: str) -> str:
     """Extract a loose semantic category signal that collapses wording variants."""
     words = re.findall(r"[a-zA-Z]+", description)
@@ -349,37 +517,110 @@ def _bug_semantic_key(description: str) -> str:
     return description.lower().strip()
 
 
+def _normalize_bug_token(token: str) -> str:
+    """Normalize a token just enough for deterministic overlap checks."""
+    normalized = token.lower()
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(normalized) > 4 and normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+            break
+    return normalized
+
+
+def _bug_text_tokens(record: dict) -> set[str]:
+    """Return informative normalized tokens from description + suggestion."""
+    text = f'{record.get("description", "")} {record.get("suggestion", "")}'
+    tokens = {
+        _normalize_bug_token(token)
+        for token in re.findall(r"[a-zA-Z]+", text)
+    }
+    return {token for token in tokens if len(token) >= 3 and token not in _BUG_TEXT_STOPWORDS}
+
+
+def _same_bug_finding(left: dict, right: dict, *, line_tolerance: int = 30) -> bool:
+    """Match the same root bug across blind passes without relying on exact lines."""
+    if left.get("file") != right.get("file"):
+        return False
+
+    line_distance = abs(int(left.get("line", 0)) - int(right.get("line", 0)))
+    if line_distance > line_tolerance:
+        return False
+
+    left_semantic = _bug_semantic_key(left.get("description", ""))
+    right_semantic = _bug_semantic_key(right.get("description", ""))
+    if left_semantic and left_semantic == right_semantic:
+        return True
+
+    shared_tokens = _bug_text_tokens(left) & _bug_text_tokens(right)
+    if line_distance == 0:
+        return len(shared_tokens) >= 1
+
+    return len(shared_tokens) >= 2
+
+
 def _run_judge(
     output_a: SpecialistBugOutput,
     output_b: SpecialistBugOutput,
     ctx: ReviewContext,
 ) -> list[dict]:
-    """Deduplicate Bug Reviewer A and B outputs, return list of BugReport-shaped dicts."""
-    all_bugs: list[SpecialistBugOutput] = [output_a, output_b]
+    """Deduplicate Bug Reviewer A and B outputs, return list of BugReport-shaped dicts.
 
-    bug_records: list[dict] = []
-    for specialist in all_bugs:
-        for bug in specialist.bugs:
-            bug_records.append(bug.model_dump(mode="json"))
+    Consensus severity:
+    - Same bug key found by both passes -> severity 'critical', source lists both.
+    - Bug key found by only one pass -> severity 'warning', source lists detecting pass.
+    """
+    severity_order = {"warning": 0, "minor": 1, "major": 2, "critical": 3}
 
-    # Deterministic dedupe key is (file, line, semantic_key) so same-location
-    # findings collapse when wording variants describe the same bug type,
-    # but distinct bugs on the same line are preserved.
-    seen: dict[tuple[str, int, str], dict] = {}
-    for record in bug_records:
-        key = (record["file"], record["line"], _bug_semantic_key(record["description"]))
-        if key not in seen:
-            seen[key] = record
+    grouped_findings: list[dict[str, Any]] = []
+    bug_records = [
+        (pass_id, bug.model_dump(mode="json"))
+        for pass_id, output in (("bug-reviewer-a", output_a), ("bug-reviewer-b", output_b))
+        for bug in output.bugs
+    ]
+    bug_records.sort(
+        key=lambda item: (
+            item[1].get("file", ""),
+            int(item[1].get("line", 0)),
+            item[1].get("description", ""),
+            item[1].get("suggestion", ""),
+            item[0],
+        )
+    )
+
+    for pass_id, record in bug_records:
+        matched_group = next(
+            (group for group in grouped_findings if _same_bug_finding(group["record"], record)),
+            None,
+        )
+        if matched_group is None:
+            grouped_findings.append({"record": record, "passes": {pass_id}})
+            continue
+
+        matched_group["passes"].add(pass_id)
+        existing = matched_group["record"]
+        if severity_order.get(record["severity"], 0) > severity_order.get(existing["severity"], 0):
+            existing["severity"] = record["severity"]
+        for field in ("description", "suggestion"):
+            incoming_value = record.get(field, "")
+            if incoming_value and incoming_value not in existing.get(field, ""):
+                if existing.get(field):
+                    existing[field] = f'{existing[field]}; {incoming_value}'
+                else:
+                    existing[field] = incoming_value
+
+    results: list[dict] = []
+    for group in grouped_findings:
+        record = group["record"]
+        passes = group["passes"]
+        if len(passes) == 2:
+            record["severity"] = "critical"
+            record["source"] = "bug-reviewer-a,bug-reviewer-b"
         else:
-            # Escalate severity on conflict
-            severity_order = {"minor": 0, "major": 1, "critical": 2}
-            existing = seen[key]
-            if severity_order.get(record["severity"], 0) > severity_order.get(
-                existing["severity"], 0
-            ):
-                seen[key] = record
+            record["severity"] = "warning"
+            record["source"] = next(iter(passes))
+        results.append(record)
 
-    return list(seen.values())
+    return results
 
 
 def _ground_impact_warnings(
@@ -434,7 +675,9 @@ def _ground_impact_warnings(
     return grounded
 
 
-def _ground_bug_reports(parsed: list[BugReport], ctx: ReviewContext, source: str) -> list[BugReport]:
+def _ground_bug_reports(
+    parsed: list[BugReport], ctx: ReviewContext, source: str
+) -> list[BugReport]:
     """Discard bug findings whose file is not present in the PR diff."""
     if not parsed:
         return []
@@ -505,7 +748,7 @@ def _synthesize(
         key = (bug_dict["file"], bug_dict["line"])
         bug_dict.setdefault("category", "bug")
         if not bug_dict.get("source"):
-            bug_dict["source"] = "bug-reviewer-team"
+            bug_dict["source"] = "bug-reviewer-a,bug-reviewer-b"
         if key not in merged:
             merged[key] = dict(bug_dict)
         else:
@@ -531,7 +774,7 @@ def _synthesize(
     # Build summary
     if all_bugs:
         bug_summaries = []
-        for severity in ["critical", "major", "minor"]:
+        for severity in ["critical", "major", "minor", "warning"]:
             count = sum(1 for b in all_bugs if b.severity == severity)
             if count:
                 bug_summaries.append(f"{count} {severity} bug(s)")
@@ -618,11 +861,13 @@ async def arun_multi_agent_review(
     owner: str,
     repo: str,
     pr_number: int,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     github_token: str = "",
     supports_structured_output: bool = True,
 ) -> ReviewOutput:
     """Async core for the multi-agent review pipeline."""
+    Config._validate_role_configs(role_configs)
+
     # Step 1: fetch once
     diff_text, head_sha, pr_title = fetch_pr_data(owner, repo, pr_number, github_token=github_token)
 
@@ -637,20 +882,45 @@ async def arun_multi_agent_review(
         github_token=github_token,
     )
 
+    # Safe context-delivery diagnostics (lengths/counts only — no diff body or secrets)
+    diagnostics = _safe_context_summary(
+        diff_text=ctx.diff_text,
+        shared_prompt=ctx.shared_prompt,
+        changed_paths=ctx.changed_paths,
+    )
+    logger.info("Review context diagnostics: %s", diagnostics)
+
     # Step 3: fan out all specialists concurrently
     timeout = Config.REVIEW_SPECIALIST_TIMEOUT_SECONDS
     logger.debug("Specialist timeout configured: %s seconds", timeout)
 
+    # Log role-to-model resolution without exposing secrets
+    for role, (model_id, base_url, _api_key) in role_configs.items():
+        logger.info(
+            "Review role %s -> model=%s base_url_host=%s",
+            role,
+            model_id,
+            base_url,
+        )
+
     bug_result, security_result, cross_repo_result = await asyncio.gather(
         asyncio.wait_for(
-            _run_bug_reviewers(ctx, provider_config, supports_structured_output), timeout=timeout
+            _run_bug_reviewers(ctx, role_configs, supports_structured_output), timeout=timeout
         ),
-        _run_security_reviewer(ctx, provider_config, supports_structured_output, timeout=timeout),
-        _run_cross_repo_reviewer(ctx, provider_config, supports_structured_output, timeout=timeout),
+        asyncio.wait_for(
+            _run_security_reviewer(ctx, role_configs, supports_structured_output, timeout=timeout),
+            timeout=timeout,
+        ),
+        asyncio.wait_for(
+            _run_cross_repo_reviewer(
+                ctx, role_configs, supports_structured_output, timeout=timeout
+            ),
+            timeout=timeout,
+        ),
         return_exceptions=True,
     )
 
-    # Normalize Bug Team result
+    # Normalize bug reviewer pair result
     bug_a = SpecialistBugOutput(bugs=[])
     bug_b = SpecialistBugOutput(bugs=[])
     bug_failed = False
@@ -776,7 +1046,7 @@ def run_multi_agent_review(
     owner: str,
     repo: str,
     pr_number: int,
-    provider_config: tuple[str, str, str],
+    role_configs: dict[str, tuple[str, str, str]],
     github_token: str = "",
     supports_structured_output: bool = True,
 ) -> ReviewOutput:
@@ -786,7 +1056,7 @@ def run_multi_agent_review(
             owner=owner,
             repo=repo,
             pr_number=pr_number,
-            provider_config=provider_config,
+            role_configs=role_configs,
             github_token=github_token,
             supports_structured_output=supports_structured_output,
         )

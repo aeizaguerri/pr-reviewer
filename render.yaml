@@ -24,11 +24,21 @@ services:
       - key: GITHUB_WEBHOOK_SECRET
         sync: false
       - key: DEFAULT_PROVIDER
-        value: "cerebras"
+        value: "huggingface"
       - key: DEFAULT_MODEL
-        value: "meta-llama/Llama-3.1-8B-Instruct:cerebras"
+        value: "moonshotai/Kimi-K2-Instruct"
       - key: HUGGING_FACE_API_KEY
         sync: false
+      - key: HUGGING_FACE_API_URL
+        value: "https://router.huggingface.co/v1"
+      - key: REVIEW_BUG_MODEL
+        value: "Qwen/Qwen2.5-Coder-32B-Instruct:nscale"
+      - key: REVIEW_SECURITY_MODEL
+        value: "Qwen/Qwen2.5-Coder-32B-Instruct:nscale"
+      - key: REVIEW_CROSS_REPO_MODEL
+        value: "meta-llama/Llama-3.3-70B-Instruct:groq"
+      - key: REVIEW_SPECIALIST_TIMEOUT_SECONDS
+        value: "120"
       - key: CORS_ORIGINS
         value: "https://pr-reviewer-web-gfa5.onrender.com"
 

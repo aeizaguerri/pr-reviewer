@@ -1,17 +1,13 @@
 import html
-import json
 import logging
 import os
 import re
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai.like import OpenAILike
-
 from src.core.config import Config
 from src.core.observability import render_prompt, track_if_enabled
 from src.reviewer.models import BugReport, ReviewOutput
-from src.reviewer.prompts import REVIEWER_INSTRUCTIONS, _build_impact_section
+from src.reviewer.prompts import _build_impact_section
 
 logger = logging.getLogger(__name__)
 
@@ -51,51 +47,6 @@ def _parse_failure_result(impact_result) -> ReviewOutput:
     )
 
 
-def _build_agent(debug: bool = False) -> Agent:
-    model_id, base_url, api_key = Config.get_model_config()
-
-    # Use structured output only for providers that support it
-    use_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
-
-    return Agent(
-        id="pr-code-reviewer",
-        model=OpenAILike(
-            id=model_id,
-            base_url=base_url,
-            api_key=api_key,
-        ),
-        instructions=REVIEWER_INSTRUCTIONS,
-        output_schema=ReviewOutput if use_structured else None,
-        markdown=False,
-        debug_mode=debug,
-    )
-
-
-def _build_agent_with_config(
-    provider_config: tuple[str, str, str],
-    supports_structured_output: bool = True,
-    debug: bool = False,
-) -> Agent:
-    """Build an Agent with explicit (model_id, base_url, api_key) — no env reads."""
-    model_id, base_url, api_key = provider_config
-
-    # Use structured output only for providers that support it
-    use_structured = supports_structured_output
-
-    return Agent(
-        id="pr-code-reviewer",
-        model=OpenAILike(
-            id=model_id,
-            base_url=base_url,
-            api_key=api_key,
-        ),
-        instructions=REVIEWER_INSTRUCTIONS,
-        output_schema=ReviewOutput if use_structured else None,
-        markdown=False,
-        debug_mode=debug,
-    )
-
-
 def _sanitize_title(title: str) -> str:
     """Strip control characters and collapse whitespace from PR title."""
     # Remove all control characters (C0 + C1) except space, plus Unicode BIDI/invisible chars
@@ -123,19 +74,6 @@ def _bugs_to_comments(bugs: list[BugReport]) -> list[dict]:
         }
         for bug in bugs
     ]
-
-
-@track_if_enabled(name="llm_call")
-def _run_llm(agent: Agent, prompt: str) -> str:
-    """Run the agent and return the raw response content as a string."""
-    run = agent.run(prompt)
-    return (
-        run.content
-        if isinstance(run.content, str)
-        else json.dumps(
-            run.content.model_dump() if hasattr(run.content, "model_dump") else run.content
-        )
-    )
 
 
 def _extract_changed_paths(diff_text: str) -> list[str]:
@@ -217,11 +155,18 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
     provider_config = Config.get_model_config()
     supports_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
 
+    # Backward-compatible single-config fan-out
+    role_configs = {
+        "bug": provider_config,
+        "security": provider_config,
+        "cross_repo": provider_config,
+    }
+
     return run_multi_agent_review(
         owner=owner,
         repo=repo,
         pr_number=pr_number,
-        provider_config=provider_config,
+        role_configs=role_configs,
         supports_structured_output=supports_structured,
     )
 
@@ -234,6 +179,7 @@ def review_pr_with_config(
     provider_config: tuple[str, str, str],
     github_token: str = "",
     supports_structured_output: bool = True,
+    role_configs: dict[str, tuple[str, str, str]] | None = None,
 ) -> ReviewOutput:
     """Run the reviewer with explicit provider config (no env var reads).
 
@@ -244,9 +190,12 @@ def review_pr_with_config(
         owner: Repository owner (user or org).
         repo: Repository name.
         pr_number: Pull request number.
-        provider_config: Tuple of (model_id, base_url, api_key).
+        provider_config: Tuple of (model_id, base_url, api_key). Used when
+            role_configs is not provided.
         github_token: GitHub personal access token.
         supports_structured_output: Whether the provider supports structured outputs.
+        role_configs: Optional per-role config dict. When provided, it overrides
+            the uniform provider_config fan-out.
 
     Returns:
         ReviewOutput with bugs, summary, and approval status.
@@ -254,11 +203,19 @@ def review_pr_with_config(
     # Local import avoids circular dependency: orchestrator imports helpers from agent.
     from src.reviewer.orchestrator import run_multi_agent_review
 
+    if role_configs is None:
+        # Backward-compatible single-config fan-out into per-role dict
+        role_configs = {
+            "bug": provider_config,
+            "security": provider_config,
+            "cross_repo": provider_config,
+        }
+
     return run_multi_agent_review(
         owner=owner,
         repo=repo,
         pr_number=pr_number,
-        provider_config=provider_config,
+        role_configs=role_configs,
         github_token=github_token,
         supports_structured_output=supports_structured_output,
     )

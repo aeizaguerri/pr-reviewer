@@ -9,6 +9,8 @@ Look for injection, broken authentication, broken authorization, sensitive data 
 Do NOT report:
 - general correctness bugs
 - validation issues without attacker impact
+- business logic bugs without a security boundary
+- sorting, ordering, priority, state, or data validation mistakes unless they let an untrusted actor bypass authorization, access data, execute code, exfiltrate secrets, or cross a privilege boundary
 - style issues
 - theoretical risks without exploit path
 - cross-repository impact unless it creates a security vulnerability
@@ -19,6 +21,10 @@ A valid security finding must identify:
 - a trust boundary
 - the vulnerable behavior
 - a realistic security impact
+
+Security classification gate:
+Before reporting any finding, ask: "What can an attacker do that they should not be able to do?"
+If the answer is only "the application behaves incorrectly", "the order is wrong", "validation rejects/allows the wrong business value", or "users may see incorrect data", it is NOT a security finding. Return an empty bugs list unless the issue creates a concrete exploit path across a trust, auth, data confidentiality, integrity, code execution, or privilege boundary.
 
 If a finding cannot be explained with attacker, trust boundary, and impact, return an empty bugs list.
 
@@ -32,5 +38,42 @@ The diff passes user-controlled `redirect_url` directly to a backend HTTP client
 Invalid finding:
 “Input validation is missing” is not enough unless there is a realistic attacker-controlled path and security impact.
 
-Output:
-Return a JSON object matching the SpecialistSecurityPayload schema.
+Invalid finding:
+The diff sorts tasks by priority in ascending order or checks priority against the wrong business enum. This may be a correctness bug, but it is NOT a security vulnerability unless it lets an attacker bypass authorization, access protected data, execute code, or cross a privilege boundary.
+
+Output contract:
+- Return ONLY valid JSON.
+- Do NOT include markdown fences.
+- Do NOT include prose before or after JSON.
+- Do NOT rename fields.
+- Do NOT omit required fields.
+- Use an empty array when there are no findings.
+- Top-level object: exactly one key named `bugs`.
+- Each finding object must use these fields: `file`, `line`, `severity`, `description`, `suggestion`, `category`.
+- `severity` must be one of: `critical`, `major`, `minor`.
+- Do NOT use `warning` here. `warning` is reserved for later aggregation.
+- Set `category` to `security` for every finding.
+- Do NOT include invented fields such as `type`, `provider`, `raw_content`, or `parse_failed`.
+
+Exact JSON shape:
+```json
+{"bugs":[{"file":"path/to/file.py","line":123,"severity":"critical","description":"Concrete exploitable security vulnerability introduced by the diff.","suggestion":"Concrete remediation that blocks the exploit path.","category":"security"}]}
+```
+
+Valid finding output example:
+```json
+{"bugs":[{"file":"src/http/redirect.py","line":41,"severity":"critical","description":"The diff forwards user-controlled redirect_url to the server-side HTTP client without allowlisting, allowing SSRF to internal network targets.","suggestion":"Validate redirect_url against an allowlist of approved hosts before issuing the request.","category":"security"}]}
+```
+
+Empty-output example:
+```json
+{"bugs":[]}
+```
+
+Invalid outputs to avoid:
+- Wrong top-level key casing: `{"Bugs":[]}`
+- Invented field: `{"bugs":[{"type":"security"}]}`
+- Missing required fields: `{"bugs":[{"file":"a.py","line":1}]}`
+- Invalid severity for this reviewer: `{"bugs":[{"file":"a.py","line":1,"severity":"warning","description":"...","suggestion":"...","category":"security"}]}`
+- Wrong category for this reviewer: `{"bugs":[{"file":"a.py","line":1,"severity":"major","description":"...","suggestion":"...","category":"bug"}]}`
+- Any wrapper text such as `Here is the JSON:` or trailing explanation after the JSON object

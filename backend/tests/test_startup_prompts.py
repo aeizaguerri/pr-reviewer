@@ -23,5 +23,5 @@ def test_lifespan_configures_opik_before_warming_prompt_cache(monkeypatch):
     assert calls == [
         "configure_opik",
         "warm:bug_reviewer_instructions,security_reviewer_instructions,"
-        "cross_repo_impact_reviewer_instructions,bug_review_team_leader,pr_review_prompt",
+        "cross_repo_impact_reviewer_instructions,pr_review_prompt",
     ]

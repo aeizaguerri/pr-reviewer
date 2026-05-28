@@ -2,7 +2,8 @@
 
 import pytest
 
-from backend.core.providers import PROVIDERS, build_provider_config
+from backend.core.config import BackendConfig
+from backend.core.providers import PROVIDERS, build_provider_config, resolve_public_hf_role_configs
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,37 @@ class TestOllamaProvider:
     def test_falls_back_to_default_model_when_empty(self):
         model_id, base_url, api_key = build_provider_config("ollama", "", "")
         assert model_id == PROVIDERS["ollama"]["default_model"]
+
+
+# ---------------------------------------------------------------------------
+# resolve_public_hf_role_configs
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePublicHfRoleConfigs:
+    def test_returns_dict_with_all_roles(self):
+        configs = resolve_public_hf_role_configs("user-hf-key")
+        assert set(configs.keys()) == {"bug", "security", "cross_repo"}
+
+    def test_uses_request_api_key_for_all_roles(self):
+        configs = resolve_public_hf_role_configs("user-hf-key")
+        for role, (_model, _base_url, api_key) in configs.items():
+            assert api_key == "user-hf-key"
+
+    def test_uses_hf_base_url_for_all_roles(self):
+        configs = resolve_public_hf_role_configs("key")
+        for role, (_model, base_url, _api_key) in configs.items():
+            assert "huggingface" in base_url or "router.huggingface" in base_url
+
+    def test_rejects_stale_leader_role_config(self):
+        """1.4: stale 'leader' role config must raise ValueError."""
+        with pytest.raises(ValueError, match="leader"):
+            BackendConfig._validate_role_configs({
+                "bug": ("m", "u", "k"),
+                "security": ("m", "u", "k"),
+                "cross_repo": ("m", "u", "k"),
+                "leader": ("m", "u", "k"),
+            })
 
 
 # ---------------------------------------------------------------------------

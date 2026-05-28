@@ -20,6 +20,11 @@ def anyio_backend():
 
 class TestPostingInvariant:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
+    _ROLE_CONFIGS = {
+        "bug": _PROVIDER_CONFIG,
+        "security": _PROVIDER_CONFIG,
+        "cross_repo": _PROVIDER_CONFIG,
+    }
 
     def _make_context(self) -> ReviewContext:
         return ReviewContext(
@@ -65,7 +70,7 @@ class TestPostingInvariant:
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
                 await arun_multi_agent_review(
-                    "owner", "repo", 1, self._PROVIDER_CONFIG, github_token="tok"
+                    "owner", "repo", 1, self._ROLE_CONFIGS, github_token="tok"
                 )
 
         mock_post.assert_called_once()
@@ -91,7 +96,7 @@ class TestPostingInvariant:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         mock_post.assert_not_called()
 

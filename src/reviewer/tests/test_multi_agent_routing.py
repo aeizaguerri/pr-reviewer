@@ -13,18 +13,18 @@ class TestMultiAgentRouting:
         return ReviewOutput(summary="test", approved=True, bugs=[], impact_warnings=[])
 
     @patch("src.reviewer.orchestrator.run_multi_agent_review")
-    def test_review_pr_with_config_calls_orchestrator_not_build_agent(self, mock_orch):
+    def test_review_pr_with_config_calls_orchestrator(self, mock_orch):
         """Task 1.1 RED: review_pr_with_config must delegate to run_multi_agent_review
-        and must NOT call the legacy mono-agent _build_agent_with_config path."""
+        after the legacy mono-agent path was removed."""
         mock_orch.return_value = self._make_output()
+        import src.reviewer.agent as agent_module
         from src.reviewer.agent import review_pr_with_config
 
-        with patch("src.reviewer.agent._build_agent_with_config") as mock_build:
-            result = review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
+        result = review_pr_with_config("owner", "repo", 1, self._PROVIDER_CONFIG)
 
-            mock_orch.assert_called_once()
-            mock_build.assert_not_called()
-            assert isinstance(result, ReviewOutput)
+        mock_orch.assert_called_once()
+        assert not hasattr(agent_module, "_build_agent_with_config")
+        assert isinstance(result, ReviewOutput)
 
     @patch("src.reviewer.orchestrator._run_bug_reviewers")
     @patch("src.reviewer.orchestrator._run_security_reviewer")

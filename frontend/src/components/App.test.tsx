@@ -17,26 +17,13 @@ describe("App smoke UI", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("renders the workspace shell, loaded providers, and review form", async () => {
+	it("renders the workspace shell and review form after health check", async () => {
 		vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test");
 		vi.stubGlobal(
 			"fetch",
 			vi
 				.fn()
-				.mockResolvedValueOnce(jsonResponse({ status: "ok", neo4j: false }))
-				.mockResolvedValueOnce(
-					jsonResponse({
-						providers: [
-							{
-								key: "cerebras",
-								description: "FREE - fast",
-								default_model: "llama3",
-								key_label: "HuggingFace API Key",
-								supports_structured_output: true,
-							},
-						],
-					}),
-				),
+				.mockResolvedValueOnce(jsonResponse({ status: "ok", neo4j: false })),
 		);
 
 		render(<App />);
@@ -48,10 +35,11 @@ describe("App smoke UI", () => {
 		await waitFor(() =>
 			expect(screen.getByText(/backend: ok/i)).toBeInTheDocument(),
 		);
-		expect(
-			screen.getByRole("option", { name: /cerebras — free - fast/i }),
-		).toBeInTheDocument();
+		// ReviewForm renders without requiring providers to load
+		expect(screen.getByLabelText(/repository/i)).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: /run review/i })).toBeDisabled();
+		// Provider controls must not be present
+		expect(screen.queryByLabelText(/^provider$/i)).not.toBeInTheDocument();
 	});
 
 	it("renders review results after successful form submission", async () => {
@@ -60,19 +48,6 @@ describe("App smoke UI", () => {
 			vi
 				.fn()
 				.mockResolvedValueOnce(jsonResponse({ status: "ok", neo4j: false }))
-				.mockResolvedValueOnce(
-					jsonResponse({
-						providers: [
-							{
-								key: "cerebras",
-								description: "FREE - fast",
-								default_model: "llama3",
-								key_label: "Cerebras API Key",
-								supports_structured_output: true,
-							},
-						],
-					}),
-				)
 				.mockResolvedValueOnce(
 					jsonResponse({
 						summary: "No bugs detected.",
@@ -86,13 +61,12 @@ describe("App smoke UI", () => {
 		render(<App />);
 
 		const user = userEvent.setup();
-		await user.selectOptions(await screen.findByLabelText(/^provider$/i), "cerebras");
 		await user.type(
-			screen.getByLabelText(/repository/i),
+			await screen.findByLabelText(/repository/i),
 			"gentleman-programming/pr-reviewer",
 		);
 		await user.type(screen.getByLabelText(/pull request number/i), "42");
-		await user.type(screen.getByLabelText(/provider api key/i), "provider-secret");
+		await user.type(screen.getByLabelText(/hugging face api key/i), "hf-secret");
 		await user.type(screen.getByLabelText(/github token/i), "github-secret");
 		await user.click(screen.getByRole("button", { name: /run review/i }));
 
@@ -106,7 +80,7 @@ describe("App smoke UI", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("renders sanitized API errors when provider loading fails", async () => {
+	it("renders sanitized API errors when health check fails", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn().mockRejectedValue(new Error("token ghp_secret should not leak")),
@@ -117,7 +91,6 @@ describe("App smoke UI", () => {
 		await waitFor(() =>
 			expect(screen.getByText(/backend unavailable/i)).toBeInTheDocument(),
 		);
-		expect(screen.getAllByText(/network error/i).length).toBeGreaterThan(0);
 		expect(screen.queryByText(/ghp_secret/i)).not.toBeInTheDocument();
 	});
 });

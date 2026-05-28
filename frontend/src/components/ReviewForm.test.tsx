@@ -2,7 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../api/errors";
-import type { ProviderInfo } from "../api/types";
 import { ReviewForm } from "./ReviewForm";
 import { submitReview } from "../api/client";
 
@@ -10,42 +9,20 @@ vi.mock("../api/client", () => ({
 	submitReview: vi.fn(),
 }));
 
-const providers: ProviderInfo[] = [
-	{
-		key: "cerebras",
-		description: "Fast hosted model",
-		default_model: "llama-3.3-70b",
-		key_label: "Cerebras API Key",
-		supports_structured_output: true,
-	},
-	{
-		key: "ollama",
-		description: "Local Ollama server",
-		default_model: "llama3.2",
-		key_label: "Ollama API Key",
-		supports_structured_output: false,
-	},
-];
-
 function submitReviewMock() {
 	return vi.mocked(submitReview);
 }
 
-function providerSelect() {
-	return screen.getByLabelText(/^provider$/i);
-}
-
 async function fillValidForm() {
 	const user = userEvent.setup();
-	await user.selectOptions(providerSelect(), "cerebras");
 	await user.type(
 		screen.getByLabelText(/repository/i),
 		"gentleman-programming/pr-reviewer",
 	);
 	await user.type(screen.getByLabelText(/pull request number/i), "42");
 	await user.type(
-		screen.getByLabelText(/provider api key/i),
-		"provider-secret",
+		screen.getByLabelText(/hugging face api key/i),
+		"hf-secret",
 	);
 	await user.type(screen.getByLabelText(/github token/i), "github-secret");
 	return user;
@@ -56,18 +33,29 @@ describe("ReviewForm", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("renders provider options, model hint, and masked secret inputs", async () => {
-		render(<ReviewForm providers={providers} onReviewComplete={vi.fn()} />);
+	it("renders only the four curated fields and masked secret inputs", async () => {
+		render(<ReviewForm onReviewComplete={vi.fn()} />);
 
-		await userEvent.selectOptions(providerSelect(), "cerebras");
-
+		expect(screen.getByLabelText(/repository/i)).toBeInTheDocument();
 		expect(
-			screen.getByRole("option", { name: /cerebras — fast hosted model/i }),
+			screen.getByLabelText(/pull request number/i),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText(/default model: llama-3.3-70b/i),
+			screen.getByLabelText(/hugging face api key/i),
 		).toBeInTheDocument();
-		expect(screen.getByLabelText(/provider api key/i)).toHaveAttribute(
+		expect(screen.getByLabelText(/github token/i)).toBeInTheDocument();
+
+		// Removed controls must not be in the DOM
+		expect(screen.queryByLabelText(/^provider$/i)).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText(/model override/i),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText(/base url override/i),
+		).not.toBeInTheDocument();
+
+		// Secrets are masked
+		expect(screen.getByLabelText(/hugging face api key/i)).toHaveAttribute(
 			"type",
 			"password",
 		);
@@ -79,11 +67,10 @@ describe("ReviewForm", () => {
 
 	it("keeps submit disabled for invalid input and displays validation errors", async () => {
 		const user = userEvent.setup();
-		render(<ReviewForm providers={providers} onReviewComplete={vi.fn()} />);
+		render(<ReviewForm onReviewComplete={vi.fn()} />);
 
 		expect(screen.getByRole("button", { name: /run review/i })).toBeDisabled();
 
-		await user.selectOptions(providerSelect(), "cerebras");
 		await user.type(screen.getByLabelText(/repository/i), "owner/");
 		await user.type(screen.getByLabelText(/pull request number/i), "0");
 		await user.click(screen.getByRole("button", { name: /run review/i }));
@@ -93,13 +80,13 @@ describe("ReviewForm", () => {
 			screen.getByText(/pr number must be a positive integer/i),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText(/provider api key is required/i),
+			screen.getByText(/hugging face api key is required/i),
 		).toBeInTheDocument();
 		expect(screen.getByText(/github token is required/i)).toBeInTheDocument();
 		expect(submitReviewMock()).not.toHaveBeenCalled();
 	});
 
-	it("submits parsed review input and never persists secrets in browser storage", async () => {
+	it("submits parsed review input with HF-only payload and never persists secrets in browser storage", async () => {
 		const storageSetItem = vi.spyOn(Storage.prototype, "setItem");
 		const onReviewComplete = vi.fn();
 		submitReviewMock().mockResolvedValue({
@@ -109,16 +96,9 @@ describe("ReviewForm", () => {
 			impact_warnings: [],
 			review_health: null,
 		});
-		render(
-			<ReviewForm providers={providers} onReviewComplete={onReviewComplete} />,
-		);
+		render(<ReviewForm onReviewComplete={onReviewComplete} />);
 
 		const user = await fillValidForm();
-		await user.type(screen.getByLabelText(/model override/i), "custom-model");
-		await user.type(
-			screen.getByLabelText(/base url override/i),
-			" http://backend:11434/v1 ",
-		);
 		await user.click(screen.getByRole("button", { name: /run review/i }));
 
 		await waitFor(() => expect(submitReviewMock()).toHaveBeenCalledTimes(1));
@@ -127,11 +107,8 @@ describe("ReviewForm", () => {
 				owner: "gentleman-programming",
 				repo: "pr-reviewer",
 				pr_number: 42,
-				provider: "cerebras",
-				model: "custom-model",
-				base_url_override: "http://backend:11434/v1",
 			},
-			providerApiKey: "provider-secret",
+			providerApiKey: "hf-secret",
 			githubToken: "github-secret",
 		});
 		await waitFor(() =>
@@ -139,15 +116,12 @@ describe("ReviewForm", () => {
 				expect.objectContaining({ summary: "Review queued" }),
 			),
 		);
-		expect(
-			screen.queryByText(/result details arrive in the next ui slice/i),
-		).not.toBeInTheDocument();
 		expect(storageSetItem).not.toHaveBeenCalled();
 	});
 
 	it("shows loading copy and disables submit while a review is running", async () => {
 		submitReviewMock().mockImplementation(() => new Promise(() => undefined));
-		render(<ReviewForm providers={providers} onReviewComplete={vi.fn()} />);
+		render(<ReviewForm onReviewComplete={vi.fn()} />);
 
 		const user = await fillValidForm();
 		await user.click(screen.getByRole("button", { name: /run review/i }));
@@ -164,7 +138,7 @@ describe("ReviewForm", () => {
 		submitReviewMock().mockRejectedValue(
 			new AppError("auth", "401 Unauthorized"),
 		);
-		render(<ReviewForm providers={providers} onReviewComplete={vi.fn()} />);
+		render(<ReviewForm onReviewComplete={vi.fn()} />);
 
 		const user = await fillValidForm();
 		await user.click(screen.getByRole("button", { name: /run review/i }));
@@ -172,7 +146,7 @@ describe("ReviewForm", () => {
 		await waitFor(() =>
 			expect(screen.getByRole("alert")).toHaveTextContent("401 Unauthorized"),
 		);
-		expect(screen.queryByText(/provider-secret/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/hf-secret/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/github-secret/i)).not.toBeInTheDocument();
 	});
 });

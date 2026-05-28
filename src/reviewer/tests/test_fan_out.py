@@ -23,6 +23,11 @@ def anyio_backend():
 
 class TestFanOut:
     _PROVIDER_CONFIG = ("my-model", "https://api.example.com/v1", "sk-test")
+    _ROLE_CONFIGS = {
+        "bug": _PROVIDER_CONFIG,
+        "security": _PROVIDER_CONFIG,
+        "cross_repo": _PROVIDER_CONFIG,
+    }
 
     def _make_context(self) -> ReviewContext:
         return ReviewContext(
@@ -80,7 +85,7 @@ class TestFanOut:
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
                 result = await asyncio.wait_for(
-                    arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG),
+                    arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS),
                     timeout=1.0,
                 )
 
@@ -103,7 +108,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert len(result.bugs) == 0
@@ -134,7 +139,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert result.summary.startswith("Error:")
@@ -165,7 +170,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert result.summary.startswith("Error:")
@@ -213,7 +218,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert len(result.impact_warnings) == 1
@@ -250,7 +255,7 @@ class TestFanOut:
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
                 result = await arun_multi_agent_review(
-                    "owner", "repo", 1, self._PROVIDER_CONFIG
+                    "owner", "repo", 1, self._ROLE_CONFIGS
                 )
 
         assert isinstance(result, ReviewOutput)
@@ -311,7 +316,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert [bug.file for bug in result.bugs] == ["file.py"]
@@ -339,7 +344,7 @@ class TestFanOut:
                 with patch("src.reviewer.orchestrator.Config") as mock_cfg:
                     mock_cfg.REVIEW_SPECIALIST_TIMEOUT_SECONDS = 0.01
                     result = await asyncio.wait_for(
-                        arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG),
+                        arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS),
                         timeout=1.0,
                     )
 
@@ -368,7 +373,7 @@ class TestFanOut:
                 mock_ctx.return_value = self._make_context()
                 with patch("src.reviewer.orchestrator.Config") as mock_cfg:
                     mock_cfg.REVIEW_SPECIALIST_TIMEOUT_SECONDS = 99
-                    await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                    await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         # Security and Cross-Repo receive timeout as positional arg
         assert mock_sec.call_args[1]["timeout"] == 99
@@ -431,7 +436,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = ctx
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert len(result.impact_warnings) == 1
@@ -455,7 +460,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert result.approved is False
@@ -482,7 +487,7 @@ class TestFanOut:
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
                 result = await arun_multi_agent_review(
-                    "owner", "repo", 1, self._PROVIDER_CONFIG
+                    "owner", "repo", 1, self._ROLE_CONFIGS
                 )
 
         assert isinstance(result, ReviewOutput)
@@ -517,7 +522,7 @@ class TestFanOut:
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
                 result = await arun_multi_agent_review(
-                    "owner", "repo", 1, self._PROVIDER_CONFIG
+                    "owner", "repo", 1, self._ROLE_CONFIGS
                 )
 
         assert isinstance(result, ReviewOutput)
@@ -557,7 +562,7 @@ class TestFanOut:
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
                 result = await arun_multi_agent_review(
-                    "owner", "repo", 1, self._PROVIDER_CONFIG
+                    "owner", "repo", 1, self._ROLE_CONFIGS
                 )
 
         assert isinstance(result, ReviewOutput)
@@ -566,7 +571,8 @@ class TestFanOut:
         # The valid bug should still surface
         assert len(result.bugs) == 1
         assert result.bugs[0].file == "file.py"
-        assert result.approved is False
+        # Single-pass bug becomes warning, so approved is True
+        assert result.approved is True
 
     @pytest.mark.anyio
     @patch("src.reviewer.orchestrator._run_bug_reviewers")
@@ -625,7 +631,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = ctx
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         # svc-a appears twice (reviewer + graph) → deduped to one, severity escalated to high
@@ -654,7 +660,7 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert result.review_health is not None
@@ -681,9 +687,53 @@ class TestFanOut:
         ):
             with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
                 mock_ctx.return_value = self._make_context()
-                result = await arun_multi_agent_review("owner", "repo", 1, self._PROVIDER_CONFIG)
+                result = await arun_multi_agent_review("owner", "repo", 1, self._ROLE_CONFIGS)
 
         assert isinstance(result, ReviewOutput)
         assert result.review_health is not None
         assert result.review_health.status == "partial"
         assert any("cross-repo" in w.lower() for w in result.review_health.warnings)
+
+    @pytest.mark.anyio
+    @patch("src.reviewer.orchestrator._run_bug_reviewers")
+    @patch("src.reviewer.orchestrator._run_security_reviewer")
+    @patch("src.reviewer.orchestrator._run_cross_repo_reviewer")
+    async def test_diagnostic_logs_omit_api_keys(
+        self, mock_cross, mock_sec, mock_bug, caplog
+    ):
+        """Observability: role resolution logs must expose model/base_url but never the API key."""
+        import logging
+        from src.reviewer.orchestrator import arun_multi_agent_review
+
+        mock_bug.return_value = (
+            SpecialistBugOutput(bugs=[]),
+            SpecialistBugOutput(bugs=[]),
+        )
+        mock_sec.return_value = SpecialistSecurityOutput(bugs=[])
+        mock_cross.return_value = SpecialistImpactOutput(impact_warnings=[])
+
+        role_configs_with_secret = {
+            "bug": ("bug-model", "https://bug.url/v1", "secret-bug-key-42"),
+            "security": ("sec-model", "https://sec.url/v1", "secret-sec-key-99"),
+            "cross_repo": ("cross-model", "https://cross.url/v1", "secret-cross-key-77"),
+        }
+
+        with patch(
+            "src.reviewer.orchestrator.fetch_pr_data", return_value=("diff", "sha", "title")
+        ):
+            with patch("src.reviewer.orchestrator.build_review_context") as mock_ctx:
+                mock_ctx.return_value = self._make_context()
+                with caplog.at_level(logging.INFO, logger="src.reviewer.orchestrator"):
+                    result = await arun_multi_agent_review(
+                        "owner", "repo", 1, role_configs_with_secret
+                    )
+
+        assert isinstance(result, ReviewOutput)
+        log_text = "\n".join(caplog.messages)
+        # Model and base_url must be present for observability
+        assert "bug-model" in log_text
+        assert "https://bug.url/v1" in log_text
+        # API keys must never leak
+        assert "secret-bug-key-42" not in log_text
+        assert "secret-sec-key-99" not in log_text
+        assert "secret-cross-key-77" not in log_text

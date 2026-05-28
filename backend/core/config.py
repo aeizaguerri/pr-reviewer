@@ -27,6 +27,11 @@ class BackendConfig:
     DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "moonshotai/Kimi-K2-Instruct")
     DEFAULT_PROVIDER: str = os.getenv("DEFAULT_PROVIDER", "huggingface")
 
+    # Per-role model overrides (public HF path)
+    REVIEW_BUG_MODEL: str = os.getenv("REVIEW_BUG_MODEL", "")
+    REVIEW_SECURITY_MODEL: str = os.getenv("REVIEW_SECURITY_MODEL", "")
+    REVIEW_CROSS_REPO_MODEL: str = os.getenv("REVIEW_CROSS_REPO_MODEL", "")
+
     # Neo4j
     NEO4J_URI: str = os.getenv("NEO4J_URI", "neo4j://localhost:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
@@ -64,3 +69,40 @@ class BackendConfig:
             return cls.DEFAULT_MODEL, cls.OLLAMA_API_URL, "ollama"
         # Default: huggingface
         return cls.DEFAULT_MODEL, cls.HUGGING_FACE_API_URL, cls.HUGGING_FACE_API_KEY
+
+    @classmethod
+    def _validate_role_configs(cls, role_configs: dict[str, tuple[str, str, str]]) -> None:
+        """Validate role configs: reject stale 'leader' and require expected roles.
+
+        Raises:
+            ValueError: if 'leader' key present or required roles missing.
+        """
+        if "leader" in role_configs:
+            raise ValueError("Stale 'leader' role config is not supported; remove it from role_configs")
+        required = {"bug", "security", "cross_repo"}
+        missing = required - set(role_configs.keys())
+        if missing:
+            raise ValueError(f"Missing required role configs: {sorted(missing)}")
+        extra = set(role_configs.keys()) - required
+        if extra:
+            raise ValueError(f"Unexpected role configs: {sorted(extra)}")
+
+    @classmethod
+    def resolve_role_configs(cls, api_key: str) -> dict[str, tuple[str, str, str]]:
+        """Resolve per-role (model_id, base_url, api_key) for the public HF path.
+
+        Args:
+            api_key: The request-scoped Hugging Face API key.
+
+        Returns:
+            dict mapping role name -> (model_id, base_url, api_key).
+            Role-specific env vars override DEFAULT_MODEL when set.
+        """
+        base_url = cls.HUGGING_FACE_API_URL
+        configs = {
+            "bug": (cls.REVIEW_BUG_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+            "security": (cls.REVIEW_SECURITY_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+            "cross_repo": (cls.REVIEW_CROSS_REPO_MODEL or cls.DEFAULT_MODEL, base_url, api_key),
+        }
+        cls._validate_role_configs(configs)
+        return configs

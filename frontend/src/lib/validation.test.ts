@@ -4,11 +4,8 @@ import { parseRepoSlug, validateReviewForm } from "./validation";
 const baseInput = {
 	repoSlug: "gentleman-programming/pr-reviewer",
 	prNumber: "42",
-	provider: "cerebras",
-	providerApiKey: "provider-key",
+	providerApiKey: "hf-test-key",
 	githubToken: "github-token",
-	model: "",
-	baseUrlOverride: "",
 };
 
 describe("parseRepoSlug", () => {
@@ -27,7 +24,7 @@ describe("parseRepoSlug", () => {
 });
 
 describe("validateReviewForm", () => {
-	it("creates a review request for valid remote-provider input", () => {
+	it("creates a review request with only owner, repo, and pr_number for valid input", () => {
 		expect(validateReviewForm(baseInput)).toEqual({
 			valid: true,
 			value: {
@@ -35,41 +32,67 @@ describe("validateReviewForm", () => {
 					owner: "gentleman-programming",
 					repo: "pr-reviewer",
 					pr_number: 42,
-					provider: "cerebras",
-					model: "",
-					base_url_override: "",
 				},
-				providerApiKey: "provider-key",
+				providerApiKey: "hf-test-key",
 				githubToken: "github-token",
 			},
 		});
 	});
 
-	it("allows optional model and base URL overrides", () => {
-		expect(
-			validateReviewForm({
-				...baseInput,
-				model: "llama-3.3-70b",
-				baseUrlOverride: " http://ollama:11434/v1 ",
-			}),
-		).toMatchObject({
-			valid: true,
-			value: {
-				request: {
-					model: "llama-3.3-70b",
-					base_url_override: "http://ollama:11434/v1",
-				},
-			},
-		});
-	});
-
-	it("requires repo slug, a positive integer PR number, provider, and GitHub token", () => {
+	it("requires repo slug in owner/repo format", () => {
 		expect(
 			validateReviewForm({
 				...baseInput,
 				repoSlug: "owner/",
+			}),
+		).toMatchObject({
+			valid: false,
+			errors: { repoSlug: "Use the format owner/repo." },
+		});
+	});
+
+	it("requires a positive integer PR number", () => {
+		expect(
+			validateReviewForm({
+				...baseInput,
 				prNumber: "0",
-				provider: "",
+			}),
+		).toMatchObject({
+			valid: false,
+			errors: { prNumber: "PR number must be a positive integer." },
+		});
+	});
+
+	it("requires a non-empty Hugging Face API key", () => {
+		expect(
+			validateReviewForm({
+				...baseInput,
+				providerApiKey: "",
+			}),
+		).toMatchObject({
+			valid: false,
+			errors: { providerApiKey: "Hugging Face API key is required." },
+		});
+	});
+
+	it("requires a non-empty GitHub token", () => {
+		expect(
+			validateReviewForm({
+				...baseInput,
+				githubToken: "",
+			}),
+		).toMatchObject({
+			valid: false,
+			errors: { githubToken: "GitHub token is required." },
+		});
+	});
+
+	it("reports multiple missing fields at once", () => {
+		expect(
+			validateReviewForm({
+				repoSlug: "",
+				prNumber: "",
+				providerApiKey: "",
 				githubToken: "",
 			}),
 		).toEqual({
@@ -77,33 +100,23 @@ describe("validateReviewForm", () => {
 			errors: {
 				repoSlug: "Use the format owner/repo.",
 				prNumber: "PR number must be a positive integer.",
-				provider: "Choose a provider.",
+				providerApiKey: "Hugging Face API key is required.",
 				githubToken: "GitHub token is required.",
 			},
 		});
 	});
 
-	it("requires provider API keys for remote providers", () => {
-		expect(
-			validateReviewForm({ ...baseInput, providerApiKey: "  " }),
-		).toMatchObject({
-			valid: false,
-			errors: { providerApiKey: "Provider API key is required." },
+	it("trims whitespace from the HF API key and GitHub token", () => {
+		const result = validateReviewForm({
+			...baseInput,
+			providerApiKey: "  hf-key-with-spaces  ",
+			githubToken: "  gh-token  ",
 		});
-	});
-
-	it("uses the backend-compatible Ollama fallback token when local provider key is empty", () => {
-		expect(
-			validateReviewForm({
-				...baseInput,
-				provider: "ollama",
-				providerApiKey: "",
-			}),
-		).toMatchObject({
+		expect(result).toMatchObject({
 			valid: true,
 			value: {
-				providerApiKey: "ollama",
-				request: { provider: "ollama" },
+				providerApiKey: "hf-key-with-spaces",
+				githubToken: "gh-token",
 			},
 		});
 	});
