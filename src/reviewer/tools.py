@@ -5,7 +5,7 @@ import os
 import httpx
 from github import Github
 
-from src.core.config import Config
+import src.core.config as config_module
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def fetch_pr_data(
     diff_text = "\n\n".join(diff_parts)
 
     # L5: Truncate oversized diffs at file boundary
-    max_chars = Config.MAX_DIFF_CHARS
+    max_chars = config_module.Config.MAX_DIFF_CHARS
     original_len = len(diff_text)
     if original_len > max_chars:
         truncated_parts = []

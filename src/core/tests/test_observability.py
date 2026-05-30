@@ -95,6 +95,7 @@ class TestConfigureOpikActive:
         mock_opik.configure.assert_called_once()
         call_kwargs = mock_opik.configure.call_args.kwargs
         assert call_kwargs["api_key"] == "test-key"
+        assert call_kwargs["project_name"] == "pr-reviewer"
 
     def test_does_not_include_workspace_when_empty(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
@@ -247,25 +248,28 @@ class TestGenericPromptRegistry:
 
     def test_get_prompt_fetches_arbitrary_name_from_opik(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
+        monkeypatch.setattr(Config, "OPIK_PROJECT_NAME", "pr-reviewer")
         mock_opik = _make_opik_mock()
-        mock_prompt_obj = MagicMock(spec=["format"])
-        mock_prompt_obj.format.return_value = "Bug prompt from Opik"
+        mock_prompt_obj = MagicMock(spec=["prompt"])
+        mock_prompt_obj.prompt = "Bug prompt from Opik"
         mock_opik.Opik.return_value.get_prompt.return_value = mock_prompt_obj
 
         with patch.dict("sys.modules", {"opik": mock_opik}):
             result = obs_module.get_prompt("bug_reviewer_instructions")
 
         assert result == "Bug prompt from Opik"
+        mock_opik.Opik.assert_called_once_with(project_name="pr-reviewer")
         mock_opik.Opik.return_value.get_prompt.assert_called_once_with(
-            name="bug_reviewer_instructions"
+            name="bug_reviewer_instructions",
+            project_name="pr-reviewer",
         )
 
     def test_get_prompt_caches_raw_opik_template_without_rendering_variables(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
+        monkeypatch.setattr(Config, "OPIK_PROJECT_NAME", "pr-reviewer")
         mock_opik = _make_opik_mock()
-        mock_prompt_obj = MagicMock()
-        mock_prompt_obj._template = "Title={pr_title}; Diff={diff_text}"
-        mock_prompt_obj.format.side_effect = KeyError("pr_title")
+        mock_prompt_obj = MagicMock(spec=["prompt"])
+        mock_prompt_obj.prompt = "Title={pr_title}; Diff={diff_text}"
         mock_opik.Opik.return_value.get_prompt.return_value = mock_prompt_obj
 
         with patch.dict("sys.modules", {"opik": mock_opik}):
@@ -274,15 +278,17 @@ class TestGenericPromptRegistry:
             )
 
         assert result == "Title=Safe title; Diff=Safe diff"
-        mock_prompt_obj.format.assert_not_called()
+        mock_opik.Opik.assert_called_once_with(project_name="pr-reviewer")
 
     def test_prompt_cache_is_isolated_per_name(self, monkeypatch):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "test-key")
+        monkeypatch.setattr(Config, "OPIK_PROJECT_NAME", "pr-reviewer")
         mock_opik = _make_opik_mock()
 
-        def get_prompt(name):
+        def get_prompt(name, project_name):
             prompt_obj = MagicMock()
-            prompt_obj.format.return_value = f"Opik {name}"
+            prompt_obj.prompt = f"Opik {name}"
+            assert project_name == "pr-reviewer"
             return prompt_obj
 
         mock_opik.Opik.return_value.get_prompt.side_effect = get_prompt
@@ -295,12 +301,14 @@ class TestGenericPromptRegistry:
         assert bug == "Opik bug_reviewer_instructions"
         assert security == "Opik security_reviewer_instructions"
         assert bug_again == bug
+        assert mock_opik.Opik.call_count == 2
         assert mock_opik.Opik.return_value.get_prompt.call_count == 2
 
     def test_get_prompt_falls_back_to_matching_file_on_opik_failure(
         self, monkeypatch, tmp_path, caplog
     ):
         monkeypatch.setattr(Config, "OPIK_API_KEY", "secret-token")
+        monkeypatch.setattr(Config, "OPIK_PROJECT_NAME", "pr-reviewer")
         monkeypatch.setattr(obs_module, "_PROJECT_ROOT", tmp_path)
         prompt_file = tmp_path / "prompts" / "security_reviewer_instructions.txt"
         prompt_file.parent.mkdir(parents=True)
@@ -313,6 +321,7 @@ class TestGenericPromptRegistry:
                 result = obs_module.get_prompt("security_reviewer_instructions")
 
         assert result == "Security fallback"
+        mock_opik.Opik.assert_called_once_with(project_name="pr-reviewer")
         log_text = "\n".join(caplog.messages)
         assert "security_reviewer_instructions" in log_text
         assert "secret-token" not in log_text

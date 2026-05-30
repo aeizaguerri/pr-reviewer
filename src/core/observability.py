@@ -61,6 +61,7 @@ def configure_opik() -> None:
 
     configure_kwargs: dict[str, str] = {
         "api_key": Config.OPIK_API_KEY,
+        "project_name": Config.OPIK_PROJECT_NAME,
     }
     if Config.OPIK_WORKSPACE:
         configure_kwargs["workspace"] = Config.OPIK_WORKSPACE
@@ -90,12 +91,18 @@ def _load_prompt_from_file(name: str) -> str:
 def _load_prompt_from_opik(name: str) -> str:
     import opik
 
-    client = opik.Opik()
-    prompt_obj = client.get_prompt(name=name)
-    raw_template = getattr(prompt_obj, "_template", None)
-    if isinstance(raw_template, str):
-        return raw_template
-    return prompt_obj.format()
+    client = opik.Opik(project_name=Config.OPIK_PROJECT_NAME)
+    get_prompt_kwargs: dict[str, str] = {
+        "name": name,
+        "project_name": Config.OPIK_PROJECT_NAME,
+    }
+
+    prompt_obj = client.get_prompt(**get_prompt_kwargs)
+    if prompt_obj is None:
+        raise RuntimeError(
+            f"Opik prompt '{name}' not found in project '{Config.OPIK_PROJECT_NAME}'"
+        )
+    return prompt_obj.prompt
 
 
 def get_prompt(name: str) -> str:
@@ -179,7 +186,7 @@ def track_if_enabled(**track_kwargs: Any) -> Callable[[F], F]:
             ...
 
         @track_if_enabled(capture_input=False)
-        def review_pr_with_config(owner, repo, pr_number, provider_config, ...):
+        def run_review(request: ReviewRequest) -> ReviewOutput:
             ...
 
     When ``_configured`` is True and ``Config.OPIK_API_KEY`` is non-empty,

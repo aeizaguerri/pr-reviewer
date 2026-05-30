@@ -4,9 +4,9 @@ import os
 import re
 from pathlib import Path
 
-from src.core.config import Config
+import src.core.config as config_module
 from src.core.observability import render_prompt, track_if_enabled
-from src.reviewer.models import BugReport, ReviewOutput
+from src.reviewer.models import BugReport, ReviewOutput, ReviewRequest
 from src.reviewer.prompts import _build_impact_section
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ def _enrich_with_graph(
     prompt = ""
     impact_result = None
 
-    if Config.ENABLE_GRAPH_ENRICHMENT:
+    if config_module.Config.ENABLE_GRAPH_ENRICHMENT:
         try:
             from src.knowledge.client import check_health, get_driver
             from src.knowledge.queries import find_consumers_of_paths
@@ -127,7 +127,7 @@ def _enrich_with_graph(
                     impact_result = find_consumers_of_paths(
                         driver,
                         changed_paths,
-                        timeout=Config.GRAPH_QUERY_TIMEOUT,
+                        timeout=config_module.Config.GRAPH_QUERY_TIMEOUT,
                     )
                     if impact_result.warnings:
                         impact_section = _build_impact_section(impact_result)
@@ -152,8 +152,10 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
     # Local import avoids circular dependency.
     from src.reviewer.orchestrator import run_multi_agent_review
 
-    provider_config = Config.get_model_config()
-    supports_structured = Config.provider_supports_structured_output(Config.DEFAULT_PROVIDER)
+    provider_config = config_module.Config.get_model_config()
+    supports_structured = config_module.Config.provider_supports_structured_output(
+        config_module.Config.DEFAULT_PROVIDER
+    )
 
     # Backward-compatible single-config fan-out
     role_configs = {
@@ -172,50 +174,27 @@ def review_pr(owner: str, repo: str, pr_number: int) -> ReviewOutput:
 
 
 @track_if_enabled(capture_input=False)
-def review_pr_with_config(
-    owner: str,
-    repo: str,
-    pr_number: int,
-    provider_config: tuple[str, str, str],
-    github_token: str = "",
-    supports_structured_output: bool = True,
-    role_configs: dict[str, tuple[str, str, str]] | None = None,
-) -> ReviewOutput:
-    """Run the reviewer with explicit provider config (no env var reads).
+def run_review(request: ReviewRequest) -> ReviewOutput:
+    """Run the reviewer using a domain request object.
 
-    Delegates to the multi-agent orchestrator. The mono-agent path has been
-    superseded by the multi-agent review pipeline.
+    This is the supported public entrypoint for PR review. It delegates to
+    the multi-agent orchestrator after validating role configs.
 
     Args:
-        owner: Repository owner (user or org).
-        repo: Repository name.
-        pr_number: Pull request number.
-        provider_config: Tuple of (model_id, base_url, api_key). Used when
-            role_configs is not provided.
-        github_token: GitHub personal access token.
-        supports_structured_output: Whether the provider supports structured outputs.
-        role_configs: Optional per-role config dict. When provided, it overrides
-            the uniform provider_config fan-out.
+        request: ReviewRequest with owner, repo, pr_number, role_configs, etc.
 
     Returns:
         ReviewOutput with bugs, summary, and approval status.
     """
-    # Local import avoids circular dependency: orchestrator imports helpers from agent.
     from src.reviewer.orchestrator import run_multi_agent_review
 
-    if role_configs is None:
-        # Backward-compatible single-config fan-out into per-role dict
-        role_configs = {
-            "bug": provider_config,
-            "security": provider_config,
-            "cross_repo": provider_config,
-        }
+    config_module.Config._validate_role_configs(request.role_configs)
 
     return run_multi_agent_review(
-        owner=owner,
-        repo=repo,
-        pr_number=pr_number,
-        role_configs=role_configs,
-        github_token=github_token,
-        supports_structured_output=supports_structured_output,
+        owner=request.owner,
+        repo=request.repo,
+        pr_number=request.pr_number,
+        role_configs=request.role_configs,
+        github_token=request.github_token,
+        supports_structured_output=request.supports_structured_output,
     )

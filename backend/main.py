@@ -12,11 +12,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.v1.routes import health_check, router
-from backend.core.config import BackendConfig
 from backend.models.schemas import HealthResponse
 from src.core.config import Config
 from src.core.logging_config import configure_logging
-from src.core.observability import ACTIVE_PROMPT_NAMES, configure_opik, warm_prompt_cache
 from src.reviewer.agent import review_pr
 
 logger = logging.getLogger(__name__)
@@ -63,6 +61,8 @@ async def lifespan(app: FastAPI):
     This ensures that direct ``uvicorn backend.main:app`` invocations (which
     bypass ``main()``) still have logging configured before any request lands.
     """
+    from src.core.observability import ACTIVE_PROMPT_NAMES, configure_opik, warm_prompt_cache
+
     configure_logging(Config.LOG_LEVEL)
     configure_opik()
     warm_prompt_cache(ACTIVE_PROMPT_NAMES)
@@ -72,11 +72,6 @@ async def lifespan(app: FastAPI):
     except ValueError as exc:
         logger.warning("Config validation warning: %s", exc)
 
-    try:
-        BackendConfig.validate()
-    except ValueError as exc:
-        logger.warning("BackendConfig validation warning: %s", exc)
-
     logger.info("PR Reviewer backend started")
     yield
 
@@ -84,7 +79,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PR Code Reviewer API", lifespan=lifespan)
 
 # CORS middleware
-_cors_origins = [o.strip() for o in BackendConfig.CORS_ORIGINS.split(",") if o.strip()]
+_cors_origins = [o.strip() for o in Config.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

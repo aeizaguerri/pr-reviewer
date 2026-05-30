@@ -5,6 +5,17 @@ from pydantic import BaseModel, Field
 from src.knowledge.models import ImpactResult, ImpactWarning
 
 
+class ReviewRequest(BaseModel):
+    """Domain request object for the review pipeline entrypoint."""
+
+    owner: str
+    repo: str
+    pr_number: int
+    role_configs: dict[str, tuple[str, str, str]]
+    github_token: str = ""
+    supports_structured_output: bool = True
+
+
 class BugReport(BaseModel):
     file: str = Field(..., description="Path to the file containing the bug")
     line: int = Field(..., description="Line number where the bug occurs")

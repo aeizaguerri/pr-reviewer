@@ -5,7 +5,7 @@ from backend.services.reviewer import run_review
 from src.reviewer.models import ReviewOutput
 
 
-@patch("backend.services.reviewer.review_pr_with_config")
+@patch("backend.services.reviewer.agent_run_review")
 def test_run_review_uses_public_hf_role_configs(mock_review):
     mock_review.return_value = ReviewOutput(summary="ok", approved=True, bugs=[], impact_warnings=[])
 
@@ -20,10 +20,11 @@ def test_run_review_uses_public_hf_role_configs(mock_review):
 
     run_review(req, api_key="hf-key", github_token="gh-token")
 
-    # Public HF path does not support structured output
-    assert mock_review.call_args.kwargs["supports_structured_output"] is False
-    # Role configs dict is passed through
-    role_configs = mock_review.call_args.kwargs["role_configs"]
+    # Verify domain request was built correctly
+    domain_req = mock_review.call_args.args[0]
+    assert domain_req.supports_structured_output is False
+    assert domain_req.github_token == "gh-token"
+    role_configs = domain_req.role_configs
     assert role_configs is not None
     assert "bug" in role_configs
     assert "security" in role_configs
@@ -33,7 +34,7 @@ def test_run_review_uses_public_hf_role_configs(mock_review):
         assert api_key == "hf-key"
 
 
-@patch("backend.services.reviewer.review_pr_with_config")
+@patch("backend.services.reviewer.agent_run_review")
 def test_run_review_ignores_request_provider_model_fields(mock_review):
     """Compatibility fields in the request body are ignored for the public path."""
     mock_review.return_value = ReviewOutput(summary="ok", approved=True, bugs=[], impact_warnings=[])
@@ -50,7 +51,8 @@ def test_run_review_ignores_request_provider_model_fields(mock_review):
     run_review(req, api_key="hf-key", github_token="gh-token")
 
     # Should still use HF path, not OpenAI
-    assert mock_review.call_args.kwargs["supports_structured_output"] is False
-    role_configs = mock_review.call_args.kwargs["role_configs"]
+    domain_req = mock_review.call_args.args[0]
+    assert domain_req.supports_structured_output is False
+    role_configs = domain_req.role_configs
     for role, (model_id, base_url, _api_key) in role_configs.items():
         assert "openai" not in base_url.lower()

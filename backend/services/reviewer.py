@@ -1,6 +1,7 @@
 """Review service — bridges the HTTP API to the core reviewer agent."""
 
-from src.reviewer.agent import review_pr_with_config
+from src.reviewer.agent import run_review as agent_run_review
+from src.reviewer.models import ReviewRequest as DomainReviewRequest
 from backend.core.providers import (
     resolve_public_hf_role_configs,
 )
@@ -44,15 +45,16 @@ def run_review(req: ReviewRequest, api_key: str = "", github_token: str = "") ->
     # Public HF path does not support structured output
     supports_structured_output = False
 
-    result = review_pr_with_config(
+    domain_request = DomainReviewRequest(
         owner=req.owner,
         repo=req.repo,
         pr_number=req.pr_number,
-        provider_config=role_configs["bug"],
-        supports_structured_output=supports_structured_output,
-        github_token=github_token,
         role_configs=role_configs,
+        github_token=github_token,
+        supports_structured_output=supports_structured_output,
     )
+
+    result = agent_run_review(domain_request)
 
     bugs = [
         BugReportResponse(
