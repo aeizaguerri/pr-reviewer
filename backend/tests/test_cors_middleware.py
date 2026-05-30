@@ -4,6 +4,7 @@ import importlib
 
 from fastapi.testclient import TestClient
 
+import src.core.observability as observability_module
 from src.core.config import Config
 
 
@@ -13,8 +14,8 @@ def _reload_main_with_cors(monkeypatch, cors_value):
     importlib.reload(main_module)
     # Prevent side effects during lifespan in the reloaded module
     monkeypatch.setattr(main_module, "configure_logging", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main_module, "configure_opik", lambda: None)
-    monkeypatch.setattr(main_module, "warm_prompt_cache", lambda names: None)
+    monkeypatch.setattr(observability_module, "configure_opik", lambda: None)
+    monkeypatch.setattr(observability_module, "warm_prompt_cache", lambda names: None)
     monkeypatch.setattr(main_module.Config, "validate", lambda: None)
     return main_module
 
